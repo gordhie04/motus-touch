@@ -16,6 +16,12 @@ const REGISTRY = {
     license: 'MIT code; weights trained on CelebAMask-HQ (non-commercial dataset)', source: 'https://github.com/yakhyo/face-parsing',
     purpose: 'Face parsing: skin, brows, eyes, glasses, nose, mouth, lips, hair'
   },
+  motus_touch: {
+    file: 'models/motus_touch.onnx',
+    sha256: '3b4e59d07f3dee7532f71b76914a386a315039422ec4cf70100b24d572c70426',
+    license: 'Non-commercial (trained on FFHQR/FFHQ, CC BY-NC-SA 4.0); network code Apache-2.0 (ABPN)', source: 'motus-train, trained on UVA CS GPU',
+    purpose: 'Motus Touch'
+  },
   abpn_detect: {
     file: 'models/abpn_detect_fp16.onnx',
     sha256: '5e54f4d76cb30277369a7b6d49dd87f8744b469539427fd341578fdba4876409',

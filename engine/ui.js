@@ -95,6 +95,7 @@ function renderWith(e, photo, data, settings, fullW, fullH) {
   e.render(U); e.present();
   clearTimeout(readTimer);
   const err = e.gl.getError(); if (err) throw new Error('WebGL error ' + err);
+  if (data !== previewData) return true;                          // drag frame: histogram waits for the final render
   readTimer = setTimeout(() => { if (!engine) return; try { renderedData = engine.readPixels(); drawHistogram(renderedData); } catch (x) { disable(x, 'readback'); scheduleRender(); } }, 90);
   return true;
 }

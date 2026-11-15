@@ -27,7 +27,7 @@ for (const [grp, labels] of Object.entries(LIVE)) for (const l of labels) {
 // bundle children show these defaults in the panel (app.js renderBundle); the engine must use the same
 const CHILD_DEFAULTS = { 'Freckles': 100, 'Acne': 100, 'Iris brightness': 80, 'Eye whites brightness': 80, 'Eye reflection': 40, 'Tame frizzy hair': 100 };
 
-let lastIn = null, lastKey = '', lastOut = null;
+const outCache = new Map();   // image -> { key, out }: one entry for the full preview, one for the drag copy
 const persons = photo => (MotusFaces.get(photo)?.faces || []).map((_, i) => `Person ${i + 1}`);
 
 function portraitDrafts(photo) {
@@ -88,17 +88,21 @@ function process(photo, img) {
   const a = MotusFaces.get(photo);
   if (!a) { ensureAnalysis(photo); return img; }
   if (!a.faces.length) return img;
-  if (needsAI(photo) && !MotusABPN.ready(photo, img, a) && !MotusABPN.busy(photo, img)) {
+  const full = active === photo && previewData ? previewData : img;          // the AI always runs on the full preview
+  if (needsAI(photo) && !MotusABPN.ready(photo, full, a) && !MotusABPN.busy(photo, full)) {
     setNotice('Retouching skin… (first time loads the AI models)');
-    MotusABPN.prepare(photo, img, a, 1536).then(() => { if (active === photo) { setNotice(); scheduleRender(); } })
+    MotusABPN.prepare(photo, full, a, 1536).then(() => { if (active === photo) { setNotice(); scheduleRender(); } })
       .catch(e => { console.error('ABPN failed', e); setNotice(); notify('Skin AI could not run: ' + e.message); });
   }
-  const key = (MotusABPN.ready(photo, img, a) ? 'ai|' : '') + photo.id + '|' + img.width + 'x' + img.height + '|' + JSON.stringify(portraitDrafts(photo)) + '|' + (groupPreview?.liveIds?.join(',') || '');
-  if (img === lastIn && key === lastKey) return lastOut;
+  if (MotusPro.enabled && needsAI(photo) && !MotusPro.ready(photo, full, a) && !MotusPro.busy(photo, full)) {
+    MotusPro.prepare(photo, full, a).then(() => { if (active === photo) scheduleRender(); }).catch(e => console.error('Motus Touch failed', e));
+  }
+  const key = (MotusABPN.ready(photo, img, a) ? 'ai|' : '') + (MotusPro.enabled && MotusPro.ready(photo, img, a) ? 'pro|' : '') + photo.id + '|' + img.width + 'x' + img.height + '|' + JSON.stringify(portraitDrafts(photo)) + '|' + (groupPreview?.liveIds?.join(',') || '');
+  const hit = outCache.get(img); if (hit && hit.key === key) return hit.out;
   let out;
   try { out = MotusRetouch.apply(img, a, getter(photo), 1); }
   catch (e) { console.error('Portrait retouch failed', e); if (!process.warned) { process.warned = true; notify('Portrait retouching hit an error and was skipped for this photo.'); } return img; }
-  lastIn = img; lastKey = key; lastOut = out;
+  if (outCache.size > 2) outCache.clear(); outCache.set(img, { key, out });
   return out;
 }
 // export: make sure faces were analysed (from the preview), then retouch the full-resolution pixels
@@ -107,8 +111,8 @@ async function processFull(photo, img) {
   const a = MotusFaces.get(photo) || await MotusFaces.analyze(photo, previewData);
   if (!a.faces.length) return img;
   const big = img.width !== previewData.width || img.height !== previewData.height;
-  if (needsAI(photo)) await MotusABPN.prepare(photo, img, a, 2048);
-  try { return MotusRetouch.apply(img, a, getter(photo), 1); } finally { if (big) MotusABPN.drop(a, img); }
+  if (needsAI(photo)) { await MotusABPN.prepare(photo, img, a, 2048); if (MotusPro.enabled) await MotusPro.prepare(photo, img, a); }
+  try { return MotusRetouch.apply(img, a, getter(photo), 1); } finally { if (big) { MotusABPN.drop(a, img); MotusPro.drop(a, img); } }
 }
 
 /* ---------- targets ---------- */
@@ -146,7 +150,7 @@ function onValue(c, value) {
 }
 function onAction(c) {
   if (c.label === 'Detect faces') {
-    MotusFaces.forget(active); lastKey = ''; setNotice('Finding faces…');
+    MotusFaces.forget(active); outCache.clear(); setNotice('Finding faces…');
     MotusFaces.analyze(active, previewData, a => { notify(a.faces.length ? `${a.faces.length} ${a.faces.length === 1 ? 'person' : 'people'} found.` : 'No faces found.'); buildPanel(); scheduleRender(); }).catch(e => notify('Face detection failed: ' + e.message));
     return true;
   }

@@ -74,7 +74,7 @@ function applyFace(out, face, V, master, W, H, keep) {
   const amt = path => (+P(path) || 0) / 100 * master;
   const zp = Z.pts;
   const keyOf = paths => master + '|' + paths.map(p => P(p)).join('|');
-  const aiKey = face.ai && face.ai[W + 'x' + H] ? 'ai' : '-', K1 = aiKey + keyOf(STAGE1), K2 = K1 + '#' + keyOf(STAGE2);
+  const aiKey = (MotusABPN.at(face, W, H) ? 'ai' : '-') + (MotusPro.enabled && MotusPro.at(face, W, H) ? 'pro' : ''), K1 = aiKey + keyOf(STAGE1), K2 = K1 + '#' + keyOf(STAGE2);
   const restore = st => { R.set(st[0]); G.set(st[1]); B.set(st[2]); };
   const save = () => [R.slice(), G.slice(), B.slice()];
   if (C.k2 === K2) restore(C.s2); else {
@@ -96,17 +96,22 @@ function applyFace(out, face, V, master, W, H, keep) {
   }
 
   /* ----- blemishes: ABPN healed spots, chosen per spot by kind (acne, freckle, mole) and confidence ----- */
-  const ai = face.ai && face.ai[W + 'x' + H];
+  const ai = MotusABPN.at(face, W, H);
   const fa = amt('Blemish removal/Face refinement/Freckles & acne'), frW = (+P('Blemish removal/Face refinement/Freckles', 100)) / 100, acW = (+P('Blemish removal/Face refinement/Acne', 100)) / 100;
   const acne = fa * acW, freck = fa * frW, mole = P('Blemish removal/Face refinement/Face mole removal') ? master : 0;
   const beard = !!P('Blemish removal/Face refinement/Beard protection'), noseV = Z.pts.nose[1] + .1, beardSkip = beard ? (x, y) => Z.toFace(x, y)[1] > noseV : null;
   let touched = null;
-  if (ai && ai.spots.length && (acne > 0 || freck > 0 || mole > 0)) {
+  const pro = MotusPro.enabled && MotusPro.at(face, W, H);
+  if (pro && fa > 0) {
+    // the FFHQR-trained model handles acne, spots and freckles in one pass; the sliders scale its change
+    const allow = soft(is(FL.skin, FL.nose, FL.neck, FL.lear, FL.rear), .01);
+    MotusPro.apply(R, G, B, pro, Math.min(1, fa) * Math.max(acW, frW), allow, w, h, rx0, ry0);
+  } else if (ai && ai.spots.length && (acne > 0 || freck > 0 || mole > 0)) {
     // acne and bumps: ABPN repaints them; a weaker slider keeps only the spots the network is surest about
     const gate = ai.spots.map(sp => { const w = sp.kind === 'mole' ? mole : sp.kind === 'acne' ? acne : freck; return w > 0 ? clamp01((sp.peak - (.85 - .5 * Math.min(1, w))) / .1) : 0; });
     touched = new Uint8Array(n); healSpots(R, G, B, ai, gate, w, h, rx0, ry0, beardSkip, touched);
   }
-  if (freck > 0 || mole > 0) {
+  if (!pro && (freck > 0 || mole > 0)) {
     // freckles and small dark marks: the Evoto-trained spot model (needs no AI download)
     if (!C.spots) {
       const features = is(FL.lbrow, FL.rbrow, FL.leye, FL.reye, FL.glasses, FL.mouth, FL.ulip, FL.llip, FL.hair);
@@ -141,7 +146,7 @@ function applyFace(out, face, V, master, W, H, keep) {
 
   if (keep) { C.k1 = K1; C.s1 = save(); } }
     /* ----- skin: frequency separation, then tone work on the low layer ----- */
-  const even = amt('Skin retouching/Facial skin/Even with dodge & burn'), aiE = face.ai && face.ai[W + 'x' + H];
+  const even = amt('Skin retouching/Facial skin/Even with dodge & burn'), aiE = MotusABPN.at(face, W, H);
   if (even > 0 && aiE) blendLayer(R, G, B, aiE, even, soft(is(FL.skin, FL.nose, FL.neck, FL.lear, FL.rear), .01), w, h, rx0, ry0);
   // the frequency-separation work below is costly: skip it when none of its controls are in use
   const IDLE = { 'Blemish removal/Face refinement/Lower eyelids protection': 1, 'Skin retouching/Facial skin/Even with dodge & burn': 1 };

@@ -105,12 +105,24 @@ async function faceJob(src, W, H, face, cap) {
   // only the change is stored (0..1 units)
   const delta = new Float32Array(3 * n);
   for (let i = 0; i < 3 * n; i++) delta[i] = (healed[i] - x[i]) / 2;
-  return { x0, y0, s, pw, ph, delta, comp, spots, mg };
+  return { x0, y0, s, pw, ph, delta, comp, spots, mg, W, H };
 }
 
+// the result for this image size, scaled from one computed at another size (same photo) if needed
+function at(face, W, H) {
+  const all = face.ai; if (!all) return undefined;
+  const own = all[W + 'x' + H]; if (own !== undefined) return own;
+  for (const [k0, e] of Object.entries(all)) {
+    if (e === null) return null;
+    if (!e.W) continue;
+    const k = W / e.W; if (Math.abs(H / e.H - k) > .01) continue;
+    return { ...e, x0: e.x0 * k, y0: e.y0 * k, s: e.s / k, W, H };
+  }
+  return undefined;
+}
 function key(photo, img) { return photo.id + '|' + img.width + 'x' + img.height; }
 function cacheKey(img) { return img.width + 'x' + img.height; }
-function ready(photo, img, analysis) { return analysis.faces.every(f => f.ai && f.ai[cacheKey(img)] !== undefined); }
+function ready(photo, img, analysis) { return analysis.faces.every(f => at(f, img.width, img.height) !== undefined); }
 function busy(photo, img) { return jobs.has(key(photo, img)); }
 
 // run all networks for every face of this image size; resolves when cached on the face objects
@@ -124,5 +136,5 @@ function prepare(photo, img, analysis, cap = 1024) {
 }
 function drop(analysis, img) { for (const f of analysis.faces) if (f.ai) delete f.ai[cacheKey(img)]; }
 
-return { prepare, ready, busy, drop, cacheKey };
+return { prepare, ready, busy, drop, cacheKey, at };
 })();

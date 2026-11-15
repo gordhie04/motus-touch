@@ -327,20 +327,33 @@ class Engine {
         if (hi) { this.lowPrecision = true; this.releaseTargets(); return this._target(name, w, h); }   // GPU can't render to half-float: use 8-bit
         throw new Error('GPU could not create a render target');
       }
-      t = { tex, fb, w, h }; this.pool.set(key, t);
+      t = { tex, fb, w, h, src: `${this.w}x${this.h}` }; this.pool.set(key, t);
     }
     return t;
   }
   releaseTargets() { const gl = this.gl; for (const t of this.pool.values()) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fb); } this.pool.clear(); }
+  releaseSources() { if (this.srcTex) { for (const t of this.srcTex.values()) this.gl.deleteTexture(t); this.srcTex.clear(); } this.sourceTex = null; }
   setSource(image, width, height) {
-    const gl = this.gl;
+    const gl = this.gl, size = `${width}x${height}`;
     if (width > this.maxSize || height > this.maxSize) throw new Error(`This GPU handles images up to ${this.maxSize}px per side.`);
-    if (this.sourceTex) gl.deleteTexture(this.sourceTex);
-    this.sourceTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, this.sourceTex);
+    // one source texture per image size, reused: a new edit only re-uploads pixels, it doesn't reallocate
+    this.srcTex = this.srcTex || new Map();
+    let tex = this.srcTex.get(size);
+    if (!tex) {
+      tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, width, height);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      this.srcTex.set(size, tex);
+    } else gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, image);
-    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
-    if (this.w !== width || this.h !== height) this.releaseTargets();
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    this.sourceTex = tex;
+    if (this.w !== width || this.h !== height) {
+      // keep the working buffers of the last two sizes (full preview + drag copy); free anything older
+      this.recent = [size, ...(this.recent || []).filter(x => x !== size)].slice(0, 2);
+      for (const [k, t] of this.pool) if (!this.recent.includes(t.src)) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fb); this.pool.delete(k); }
+      for (const [k, t] of this.srcTex) if (!this.recent.includes(k)) { gl.deleteTexture(t); this.srcTex.delete(k); }
+    }
     this.w = width; this.h = height;
   }
   _draw(prog, target, uniforms, textures = {}) {
@@ -440,7 +453,7 @@ class Engine {
     if (!t) { const tex = this._tex(w, h, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE); const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0); t = { tex, fb, w, h }; this.pool.set(key, t); }
     return t;
   }
-  destroy() { this.releaseTargets(); this.gl.getExtension('WEBGL_lose_context')?.loseContext(); }
+  destroy() { this.releaseTargets(); this.releaseSources(); this.gl.getExtension('WEBGL_lose_context')?.loseContext(); }
 }
 
 return { Engine };

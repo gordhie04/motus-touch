@@ -22,3 +22,8 @@ abpn_detect_fp16.onnx, abpn_inpaint_fp16.onnx, abpn_blend_fp16.onnx
   abpn_detect_fp16   sha256 5e54f4d76cb30277369a7b6d49dd87f8744b469539427fd341578fdba4876409
   abpn_inpaint_fp16  sha256 5612826f3a56d85a08fc1bec990510c23ffc789bf3e95aebb8f6ff7c445b38cf
   abpn_blend_fp16    sha256 086ca62b2cad5e4d1e486a776cdce6e97f1dd31bee381af867896d437fddae43
+
+motus_touch.onnx  (sha256 3b4e59d07f3dee7532f71b76914a386a315039422ec4cf70100b24d572c70426)
+  Trained for Motus-Touch on ~14,500 face pairs from FFHQR (Shafaei et al., "AutoRetouch", WACV 2021; Skylab Technologies)
+  and FFHQ (Karras et al., NVIDIA), both CC BY-NC-SA 4.0. Network adapted from ABPN DetectionUNet (Alibaba DAMO, Apache-2.0).
+  Because of the training data, this model is for personal, non-commercial use only.
