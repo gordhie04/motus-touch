@@ -14,9 +14,15 @@ const M = { mu: [3.58138, 2.67622, 0.0072, 1.52425, 0.65387, 58.13791, 0.66339, 
 function gauss(src, w, h, sigma) {          // exact separable gaussian, for the small radii
   const r = Math.max(1, Math.ceil(sigma * 3)), k = new Float32Array(2 * r + 1); let s = 0;
   for (let i = -r; i <= r; i++) s += k[i + r] = Math.exp(-i * i / (2 * sigma * sigma)); for (let i = 0; i < k.length; i++) k[i] /= s;
-  const t = new Float32Array(w * h), o = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) { const row = y * w; for (let x = 0; x < w; x++) { let a = 0; for (let i = -r; i <= r; i++) a += src[row + Math.min(w - 1, Math.max(0, x + i))] * k[i + r]; t[row + x] = a; } }
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let a = 0; for (let i = -r; i <= r; i++) a += t[Math.min(h - 1, Math.max(0, y + i)) * w + x] * k[i + r]; o[y * w + x] = a; }
+  const t = new Float32Array(w * h), o = new Float32Array(w * h), acc = new Float64Array(w), n = 2 * r + 1;
+  for (let y = 0; y < h; y++) { const row = y * w;
+    for (let x = 0; x < w; x++) { let a = 0;
+      if (x >= r && x < w - r) { const p = row + x - r; for (let i = 0; i < n; i++) a += src[p + i] * k[i]; }      // away from the edges: no clamping needed
+      else for (let i = -r; i <= r; i++) a += src[row + Math.min(w - 1, Math.max(0, x + i))] * k[i + r];
+      t[row + x] = a; } }
+  for (let y = 0; y < h; y++) { acc.fill(0);                                                                    // vertical pass a row at a time, so memory is read in order
+    for (let i = -r; i <= r; i++) { const p = Math.min(h - 1, Math.max(0, y + i)) * w, kv = k[i + r]; for (let x = 0; x < w; x++) acc[x] += t[p + x] * kv; }
+    o.set(acc, y * w); }
   return o;
 }
 const lin = c => c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4);
@@ -56,20 +62,22 @@ function analyse(R0, G0, B0, allow, w, h, FW, blur) {
   return { comp, spots, lift, fs };
 }
 
-/* strength 0..1 (Freckles slider), mole = remove large dark marks too. touched = pixels another healer already fixed. */
-function apply(R, G, B, S, strength, moles, w, h, touched, skip) {
+/* strength 0..1 (Freckles slider), mole = remove large dark marks too. done = share of each pixel another healer already took on (0..1);
+   this layer does the rest and adds its own share. Spots fade in over a short range of the slider instead of switching on. */
+function apply(R, G, B, S, strength, moles, w, h, done, skip, keepMole) {
   if (!S.spots.length || strength <= 0) return 0;
-  const thr = .75 - .45 * Math.min(1, strength), k = .35 + .55 * Math.min(1, strength), n = w * h;
-  const on = S.spots.map(sp => (sp.mole ? moles : 1) && sp.p > thr && !(skip && skip(sp.cx, sp.cy)) ? 1 : 0);
-  // skip spots the AI healer already repainted
-  if (touched) for (let i = 0; i < n; i++) { const c = S.comp[i]; if (c >= 0 && touched[i]) on[c] = 0; }
+  if (keepMole) for (let i = 0; i < w * h; i++) { const c = S.comp[i]; if (c >= 0 && S.spots[c].mole) keepMole[i] = 1; }   // moles stay unless removal is on
+  const thr = .75 - .45 * Math.min(1, strength), k = .9 * Math.min(1, strength), n = w * h;
+  const on = S.spots.map(sp => (sp.mole ? moles : 1) && !(skip && skip(sp.cx, sp.cy)) ? Math.max(0, Math.min(1, (sp.p - thr) / .1 + .5)) : 0);
+  // leave to the AI healer whatever share of a spot it already repainted
+  if (done) { const taken = new Float32Array(S.spots.length); for (let i = 0; i < n; i++) { const c = S.comp[i]; if (c >= 0 && done[i] > taken[c]) taken[c] = done[i]; } for (let c = 0; c < on.length; c++) on[c] *= 1 - taken[c]; }
   const m = new Float32Array(n); let cnt = 0;
-  for (let i = 0; i < n; i++) { const c = S.comp[i]; if (c >= 0 && on[c]) { m[i] = 1; cnt++; } }
+  for (let i = 0; i < n; i++) { const c = S.comp[i]; if (c >= 0 && on[c] > 0) { m[i] = on[c]; cnt++; } }
   if (!cnt) return 0;
   const mm = gauss(m, w, h, Math.max(1, S.fs * 1.2));           // feathered, slightly grown edge
   for (let i = 0; i < n; i++) { const a = Math.min(1, mm[i] * 1.6) * k; if (a < .004) continue;
     if (.2126 * S.lift[0][i] + .7152 * S.lift[1][i] + .0722 * S.lift[2][i] <= 0) continue;   // only ever lift, never darken an edge
-    R[i] += S.lift[0][i] * a; G[i] += S.lift[1][i] * a; B[i] += S.lift[2][i] * a; }
+    R[i] += S.lift[0][i] * a; G[i] += S.lift[1][i] * a; B[i] += S.lift[2][i] * a; if (done) done[i] = Math.max(done[i], Math.min(1, mm[i] * 1.6)); }
   return cnt;
 }
 

@@ -112,7 +112,7 @@ async function faceJob(src, W, H, face, cap) {
 function at(face, W, H) {
   const all = face.ai; if (!all) return undefined;
   const own = all[W + 'x' + H]; if (own !== undefined) return own;
-  for (const [k0, e] of Object.entries(all)) {
+  for (const e of Object.values(all)) {
     if (e === null) return null;
     if (!e.W) continue;
     const k = W / e.W; if (Math.abs(H / e.H - k) > .01) continue;
@@ -136,5 +136,5 @@ function prepare(photo, img, analysis, cap = 1024) {
 }
 function drop(analysis, img) { for (const f of analysis.faces) if (f.ai) delete f.ai[cacheKey(img)]; }
 
-return { prepare, ready, busy, drop, cacheKey, at };
+return { prepare, ready, busy, drop, at };
 })();

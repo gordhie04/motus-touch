@@ -69,13 +69,12 @@ const PhotoMenu = (() => {
   function remove(list) {
     const ids = new Set(list.map(p => p.id));
     const wasActive = active && ids.has(active.id);
-    let next = null;
-    if (wasActive) { const pool = collectionPhotos(), i = pool.indexOf(active); next = pool.slice(i + 1).find(p => !ids.has(p.id)) || pool.slice(0, i).reverse().find(p => !ids.has(p.id)) || null; }
-    for (const p of list) { if (p.url?.startsWith('blob:')) URL.revokeObjectURL(p.url); selected.delete(p.id); }
+    for (const p of list) { forgetPhoto(p); selected.delete(p.id); }
     photos = photos.filter(p => !ids.has(p.id));
     if (wasActive) { active = null; sourceImage = null; previewData = null; renderedData = null; }
     saveWorkspace();
-    if (wasActive) { if (next) selectPhoto(next); else setScreen('library'); }
+    // deleting never opens another photo: the Library stays as it is, an open Studio shows its empty state
+    if (wasActive && screen === 'editor') LibraryExtras.studioEmpty(true);
     refresh();
     notify(list.length > 1 ? `${list.length} photos deleted.` : `“${list[0].name}” deleted.`);
   }

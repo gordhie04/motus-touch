@@ -34,7 +34,7 @@ const FEATURE_MODULES = [
  section('Color calibration',[group('Primaries',[signed('Shadows tint'),signed('Red primary hue'),signed('Red primary saturation'),signed('Green primary hue'),signed('Green primary saturation'),signed('Blue primary hue'),signed('Blue primary saturation')])])
 ]},
 {id:'portrait',title:'Portrait retouching',short:'Portrait',icon:'face',sections:[
- section('Master & targets',[group('Portrait settings',[slider('Master slider',{value:100}),action('Detect faces'),action('Add individual target'),toggle('Link portrait settings'),action('Manual target correction')])]),
+ section('Master & targets',[group('Portrait settings',[action('Detect faces'),action('Add individual target'),toggle('Link portrait settings'),action('Manual target correction')])]),
  section('Blemish removal',[
  group('Face refinement',[slider('Freckles & acne'),slider('Freckles'),slider('Acne'),toggle('Face mole removal'),slider('Reduce face shine'),slider('Dark circles'),slider('Eye bags'),slider('Lower eyelids protection',{value:100}),slider('Remove glasses glare'),slider('Nostril cleanup'),slider('Lip wrinkles & flakes'),slider('Double chin'),slider('Double chin intensity',{value:90}),slider('Double chin shadow',{value:80}),toggle('Beard protection')]),
  group('Facial wrinkles',[...many('Forehead wrinkles|Eleven lines|Eye wrinkles|Nasal wrinkles|Smile line · left|Smile line · right|Cheek wrinkles|Marionette lines|Perioral wrinkles')]),

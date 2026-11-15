@@ -94,8 +94,8 @@ function renderWith(e, photo, data, settings, fullW, fullH) {
   e.setCurves(U.curves); e.setLut('profile', U.luts.profile); e.setLut('filter', U.luts.filter); e.setLut('look', U.luts.look);
   e.render(U); e.present();
   clearTimeout(readTimer);
-  const err = e.gl.getError(); if (err) throw new Error('WebGL error ' + err);
-  if (data !== previewData) return true;                          // drag frame: histogram waits for the final render
+  if (data !== previewData || Interaction.busy) return true;      // while dragging, the histogram and the GPU error check wait for the final render
+  const err = e.gl.getError(); if (err) throw new Error('WebGL error ' + err);   // asking the GPU for errors makes it finish all pending work first, so not on drag frames
   readTimer = setTimeout(() => { if (!engine) return; try { renderedData = engine.readPixels(); drawHistogram(renderedData); } catch (x) { disable(x, 'readback'); scheduleRender(); } }, 90);
   return true;
 }

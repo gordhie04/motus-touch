@@ -5,7 +5,7 @@
 const MotusPortraitUI = (() => {
 const P = MotusParams;
 const LIVE = {
-  'Master & targets/Portrait settings': ['Master slider', 'Detect faces', 'Add individual target'],
+  'Master & targets/Portrait settings': ['Detect faces', 'Add individual target'],
   'Blemish removal/Face refinement': ['Freckles & acne', 'Freckles', 'Acne', 'Face mole removal', 'Reduce face shine', 'Dark circles', 'Eye bags', 'Lower eyelids protection', 'Remove glasses glare', 'Lip wrinkles & flakes', 'Beard protection'],
   'Blemish removal/Facial wrinkles': ['Forehead wrinkles', 'Eleven lines', 'Eye wrinkles', 'Nasal wrinkles', 'Smile line · left', 'Smile line · right', 'Cheek wrinkles', 'Marionette lines', 'Perioral wrinkles'],
   'Skin retouching/Facial skin': ['Even with dodge & burn', 'Textured smoothing', 'Frequency separation · high', 'Frequency separation · low', 'Skin softening'],
@@ -24,7 +24,7 @@ for (const [grp, labels] of Object.entries(LIVE)) for (const l of labels) {
   const c = P.control(`portrait/${grp}/${l}`); if (!c) { console.warn('missing portrait control', grp, l); continue; }
   c.live = true; c.liveSince = 2;
 }
-// bundle children show these defaults in the panel (app.js renderBundle); the engine must use the same
+// sliders that sit under a parent slider start at these values, in the panel (app.js renderBundle) and in the engine alike
 const CHILD_DEFAULTS = { 'Freckles': 100, 'Acne': 100, 'Iris brightness': 80, 'Eye whites brightness': 80, 'Eye reflection': 40, 'Tame frizzy hair': 100 };
 
 const outCache = new Map();   // image -> { key, out }: one entry for the full preview, one for the drag copy
@@ -42,25 +42,28 @@ function getter(photo) {
     const def = CHILD_DEFAULTS[c.label] ?? c.value;
     if (ex?.has(c.id)) return def;
     const own = photo.drafts[`${c.id}@Person ${k + 1}`], all = photo.drafts[`${c.id}@All people`];
-    const v = own !== undefined && !own?.queued ? own : all !== undefined && !all?.queued ? all : def;
-    return v;
+    return own !== undefined && !own?.queued ? own : all !== undefined && !all?.queued ? all : def;
   };
 }
 function hasEdits(photo) {
   const g = getter(photo), faces = Math.max(1, MotusFaces.get(photo)?.faces.length || 1);
   for (const k of Object.keys(portraitDrafts(photo))) {
-    const c = P.byId.get(k.split('@')[0]); if (c.label === 'Master slider' || c.label === 'Lower eyelids protection' || CHILD_DEFAULTS[c.label] !== undefined || c.label === 'Beard protection') continue;
+    const c = P.byId.get(k.split('@')[0]); if (c.label === 'Lower eyelids protection' || CHILD_DEFAULTS[c.label] !== undefined || c.label === 'Beard protection') continue;   // these only shape another slider
     for (let f = 0; f < faces; f++) { const v = g(labelPath(c), f); if (v !== (CHILD_DEFAULTS[c.label] ?? c.value) && v !== 'Original' && v !== 'Custom') return true; }
   }
   return false;
 }
-// the networks only run when a slider that uses them is on
-const AI_PATHS = ['Blemish removal/Face refinement/Freckles & acne', 'Blemish removal/Face refinement/Face mole removal', 'Skin retouching/Facial skin/Even with dodge & burn'];
-function needsAI(photo) {
+// Which networks this photo's sliders need. Blemish sliders use both: ABPN heals single spots and the Motus Touch model does the rest;
+// "Even with dodge & burn" uses ABPN's blend layer only.
+const BLEMISH = ['Blemish removal/Face refinement/Freckles & acne', 'Blemish removal/Face refinement/Face mole removal'], EVEN = ['Skin retouching/Facial skin/Even with dodge & burn'];
+function uses(photo, paths) {
   const g = getter(photo), faces = Math.max(1, MotusFaces.get(photo)?.faces.length || 1);
-  for (let f = 0; f < faces; f++) for (const p of AI_PATHS) { const v = g(p, f); if (v && +g('Master & targets/Portrait settings/Master slider', f)) return true; }
+  for (let f = 0; f < faces; f++) for (const p of paths) if (g(p, f)) return true;
   return false;
 }
+const needsPro = photo => MotusPro.enabled && uses(photo, BLEMISH);
+const needsABPN = photo => uses(photo, [...BLEMISH, ...EVEN]);
+const needsAI = photo => needsPro(photo) || needsABPN(photo);
 const pathCache = new Map();
 function labelPath(c) {
   if (pathCache.has(c.id)) return pathCache.get(c.id);
@@ -71,7 +74,7 @@ function ensureAnalysis(photo) {
   if (!previewData || MotusFaces.get(photo) || MotusFaces.busy(photo)) return;
   setNotice('Finding faces…');
   MotusFaces.analyze(photo, previewData, a => {
-    if (active === photo) { setNotice(); if (moduleId === 'portrait') { const sc = $('#tool-scroll').scrollTop; buildPanel(); $('#tool-scroll').scrollTop = sc; } scheduleRender(); drawFaces(); }
+    if (active === photo) { setNotice(); if (moduleId === 'portrait') { const sc = $('#tool-scroll').scrollTop; buildPanel(); $('#tool-scroll').scrollTop = sc; } scheduleRender(); drawFaces(); warm(photo); }
   }).catch(e => setNotice('Face detection failed: ' + e.message));
 }
 function setNotice(text) {
@@ -89,18 +92,20 @@ function process(photo, img) {
   if (!a) { ensureAnalysis(photo); return img; }
   if (!a.faces.length) return img;
   const full = active === photo && previewData ? previewData : img;          // the AI always runs on the full preview
-  if (needsAI(photo) && !MotusABPN.ready(photo, full, a) && !MotusABPN.busy(photo, full)) {
+  if (needsABPN(photo) && !MotusABPN.ready(photo, full, a) && !MotusABPN.busy(photo, full)) {
     setNotice('Retouching skin… (first time loads the AI models)');
     MotusABPN.prepare(photo, full, a, 1536).then(() => { if (active === photo) { setNotice(); scheduleRender(); } })
       .catch(e => { console.error('ABPN failed', e); setNotice(); notify('Skin AI could not run: ' + e.message); });
   }
-  if (MotusPro.enabled && needsAI(photo) && !MotusPro.ready(photo, full, a) && !MotusPro.busy(photo, full)) {
-    MotusPro.prepare(photo, full, a).then(() => { if (active === photo) scheduleRender(); }).catch(e => console.error('Motus Touch failed', e));
+  if (needsPro(photo) && !MotusPro.ready(photo, full, a)) {
+    if (MotusPro.busy(photo, full)) setNotice('Retouching skin…');   // already running in the background (see warm)
+    else { setNotice('Retouching skin… (first time loads the AI model)');
+      MotusPro.prepare(photo, full, a).then(() => { if (active === photo) { setNotice(); scheduleRender(); } }).catch(e => { console.error('Motus Touch failed', e); setNotice(); }); }
   }
   const key = (MotusABPN.ready(photo, img, a) ? 'ai|' : '') + (MotusPro.enabled && MotusPro.ready(photo, img, a) ? 'pro|' : '') + photo.id + '|' + img.width + 'x' + img.height + '|' + JSON.stringify(portraitDrafts(photo)) + '|' + (groupPreview?.liveIds?.join(',') || '');
   const hit = outCache.get(img); if (hit && hit.key === key) return hit.out;
   let out;
-  try { out = MotusRetouch.apply(img, a, getter(photo), 1); }
+  try { out = MotusRetouch.apply(img, a, getter(photo)); }
   catch (e) { console.error('Portrait retouch failed', e); if (!process.warned) { process.warned = true; notify('Portrait retouching hit an error and was skipped for this photo.'); } return img; }
   if (outCache.size > 2) outCache.clear(); outCache.set(img, { key, out });
   return out;
@@ -111,12 +116,18 @@ async function processFull(photo, img) {
   const a = MotusFaces.get(photo) || await MotusFaces.analyze(photo, previewData);
   if (!a.faces.length) return img;
   const big = img.width !== previewData.width || img.height !== previewData.height;
-  if (needsAI(photo)) { await MotusABPN.prepare(photo, img, a, 2048); if (MotusPro.enabled) await MotusPro.prepare(photo, img, a); }
-  try { return MotusRetouch.apply(img, a, getter(photo), 1); } finally { if (big) { MotusABPN.drop(a, img); MotusPro.drop(a, img); } }
+  if (needsABPN(photo)) await MotusABPN.prepare(photo, img, a, 2048);
+  if (needsPro(photo)) await MotusPro.prepare(photo, img, a);
+  try { return MotusRetouch.apply(img, a, getter(photo)); } finally { if (big) { MotusABPN.drop(a, img); MotusPro.drop(a, img); } }
 }
 
 /* ---------- targets ---------- */
-function targets() { const a = active && MotusFaces.get(active); return ['All people', ...(a ? persons(active) : [])]; }
+// person chips only make sense with 2+ people; with one person (or none) edits simply apply to the photo
+function targets() {
+  const a = active && MotusFaces.get(active), ps = a ? persons(active) : [];
+  if (ps.length < 2) { if (active && active.target && active.target !== 'All people') active.target = 'All people'; return []; }
+  return ['All people', ...ps];
+}
 function drawFaces() {
   const frame = document.getElementById('image-frame'); if (!frame) return;
   frame.querySelectorAll('.face-box').forEach(b => b.remove());
@@ -133,8 +144,25 @@ function drawFaces() {
     frame.append(b);
   });
 }
+// run both skin networks in the background as soon as faces are known, so the first slider move is instant
+function warm(photo) {
+  const a = MotusFaces.get(photo);
+  if (!a || !a.faces.length || !previewData || active !== photo || moduleId !== 'portrait') return;
+  const done = () => { if (active === photo && needsAI(photo)) { setNotice(); scheduleRender(); } };
+  // one after the other: the Motus Touch model first, then ABPN spot healing
+  const pro = MotusPro.enabled && !MotusPro.ready(photo, previewData, a) && !MotusPro.busy(photo, previewData) ? MotusPro.prepare(photo, previewData, a).then(done) : Promise.resolve();
+  pro.catch(e => console.error('Motus Touch failed', e)).then(() => {
+    if (active === photo && !MotusABPN.ready(photo, previewData, a) && !MotusABPN.busy(photo, previewData)) return MotusABPN.prepare(photo, previewData, a, 1536).then(done);
+  }).catch(e => console.error('ABPN failed', e));
+}
+function personCount() {
+  const box = document.getElementById('target-chips'); if (!box || !active || moduleId !== 'portrait') return;
+  const a = MotusFaces.get(active), n = a ? a.faces.length : 0;
+  if (n === 1) { const t = document.createElement('span'); t.className = 'person-count'; t.textContent = '1 person identified'; box.replaceChildren(t); }
+}
 function afterPanel() {
-  if (moduleId === 'portrait' && active) { ensureAnalysis(active); setNotice(MotusFaces.busy(active) ? 'Finding faces…' : null); }
+  personCount();
+  if (moduleId === 'portrait' && active) { ensureAnalysis(active); setNotice(MotusFaces.busy(active) ? 'Finding faces…' : null); warm(active); }
   drawFaces();
   LibraryExtras.decorateChips();
   LibraryExtras.faceToggle(moduleId === 'portrait' && screen === 'editor' && !!(active && MotusFaces.get(active)?.faces.length));
@@ -161,5 +189,5 @@ function onAction(c) {
   return false;
 }
 
-return { process, processFull, targets, afterPanel, onValue, onAction, hasEdits, ensureAnalysis };
+return { process, processFull, targets, afterPanel, onValue, onAction, hasEdits, childDefaults: CHILD_DEFAULTS };
 })();

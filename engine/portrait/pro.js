@@ -1,5 +1,5 @@
 /* Motus Touch: trained on ~14,500 professional retouches (FFHQR), see motus-train/.
-   One network per face: returns the retouched face and a map of where it edited. Run once per face in
+   One network per face: returns the retouched face. Run once per face in
    the model worker and cached; the slider only scales the stored change, so it is instant. */
 'use strict';
 
@@ -14,7 +14,7 @@ function planar(data, n) {
 }
 
 async function faceJob(src, W, H, face) {
-  const fw = face.w * W, fh = face.h * H, L = 1.6 * Math.max(fw, fh), cx = face.x * W + fw / 2, cy = face.y * H + fh / 2;
+  const fw = face.w * W, fh = face.h * H, L = 1.45 * Math.max(fw, fh), cx = face.x * W + fw / 2, cy = face.y * H + fh / 2;
   const x0 = Math.max(0, Math.floor(cx - L / 2)), y0 = Math.max(0, Math.floor(cy - L / 2));
   const cw = Math.min(W, Math.ceil(cx + L / 2)) - x0, ch = Math.min(H, Math.ceil(cy + L / 2)) - y0;
   if (cw < 32 || ch < 32) return null;
@@ -24,17 +24,17 @@ async function faceJob(src, W, H, face) {
   const c = document.createElement('canvas'); c.width = PW; c.height = PH;
   const g = c.getContext('2d', { willReadFrequently: true }); g.imageSmoothingQuality = 'high'; g.drawImage(src, x0, y0, cw, ch, 0, 0, PW, PH);
   const n = PW * PH, x = planar(g.getImageData(0, 0, PW, PH).data, n);
-  const r = await MotusModels.run('motus_touch', { image: { type: 'float32', dims: [1, 3, PH, PW], data: x.slice() } });   // the worker takes ownership of what it is sent
+  const r = await MotusModels.run('motus_touch', { image: { type: 'float32', dims: [1, 3, PH, PW], data: x.slice() } }, ['retouched']);   // the worker takes ownership of what it is sent
   const out = r.retouched.data, delta = new Float32Array(3 * n);
   for (let i = 0; i < 3 * n; i++) delta[i] = (out[i] - x[i]) / 2;          // change in 0..1 units
-  return { x0, y0, sx: PW / cw, sy: PH / ch, PW, PH, delta, mask: Float32Array.from(r.mask.data), W, H };
+  return { x0, y0, sx: PW / cw, sy: PH / ch, PW, PH, delta, W, H };
 }
 
 // the result for this image size, scaled from one computed at another size (same photo) if needed
 function at(face, W, H) {
   const all = face.pro; if (!all) return undefined;
   const own = all[W + 'x' + H]; if (own !== undefined) return own;
-  for (const [k0, e] of Object.entries(all)) {
+  for (const e of Object.values(all)) {
     if (e === null) return null;
     if (!e.W) continue;
     const k = W / e.W; if (Math.abs(H / e.H - k) > .01) continue;
@@ -54,19 +54,22 @@ function prepare(photo, img, a) {
 }
 function drop(a, img) { for (const f of a.faces) if (f.pro) delete f.pro[ck(img)]; }
 
-// add `amount` of the learned change inside `allow` (soft skin mask, region coordinates)
-function apply(R, G, B, P, amount, allow, w, h, rx0, ry0) {
-  const { x0, y0, sx, sy, PW, PH, delta } = P, N = PW * PH;
+// the learned change mapped onto a face region once (bilinear, faded at the crop border)
+function regionMap(P, w, h, rx0, ry0) {
+  const { x0, y0, sx, sy, PW, PH, delta } = P, N = PW * PH, n = w * h, d = new Float32Array(3 * n);
   for (let y = 0; y < h; y++) { const fy = (ry0 + y + .5 - y0) * sy - .5; if (fy < -.5 || fy > PH - .5) continue;
-    for (let x = 0; x < w; x++) { const i = y * w + x, a = allow[i] * amount; if (a <= 0) continue;
-      const fx = (rx0 + x + .5 - x0) * sx - .5; if (fx < -.5 || fx > PW - .5) continue;
-      const edge = Math.min(1, Math.min(fx + .5, PW - .5 - fx) / (PW * .05), Math.min(fy + .5, PH - .5 - fy) / (PH * .05));   // fade out at the crop border
-      if (edge <= 0) continue;
+    for (let x = 0; x < w; x++) { const fx = (rx0 + x + .5 - x0) * sx - .5; if (fx < -.5 || fx > PW - .5) continue;
+      const edge = Math.min(1, Math.min(fx + .5, PW - .5 - fx) / (PW * .05), Math.min(fy + .5, PH - .5 - fy) / (PH * .05)); if (edge <= 0) continue;
       const ax = Math.max(0, Math.min(PW - 1, Math.floor(fx))), ay = Math.max(0, Math.min(PH - 1, Math.floor(fy))), bx = Math.min(PW - 1, ax + 1), by = Math.min(PH - 1, ay + 1);
-      const tx = Math.max(0, Math.min(1, fx - ax)), ty = Math.max(0, Math.min(1, fy - ay));
-      const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty, j00 = ay * PW + ax, j10 = ay * PW + bx, j01 = by * PW + ax, j11 = by * PW + bx;
-      const d = c => delta[c * N + j00] * w00 + delta[c * N + j10] * w10 + delta[c * N + j01] * w01 + delta[c * N + j11] * w11;
-      R[i] += d(0) * a * edge; G[i] += d(1) * a * edge; B[i] += d(2) * a * edge; } }
+      const tx = Math.max(0, Math.min(1, fx - ax)), ty = Math.max(0, Math.min(1, fy - ay)), w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty, i = y * w + x;
+      for (let c = 0; c < 3; c++) { const o = c * N; d[c * n + i] = (delta[o + ay * PW + ax] * w00 + delta[o + ay * PW + bx] * w10 + delta[o + by * PW + ax] * w01 + delta[o + by * PW + bx] * w11) * edge; } } }
+  return d;
+}
+// add `amount` of the learned change inside `allow` (soft skin mask, region coordinates); C caches the mapping per face region
+function apply(R, G, B, P, amount, allow, w, h, rx0, ry0, C) {
+  const d = C && C.proMap && C.proMap.src === P.delta && C.proMap.w === w ? C.proMap.d : (() => { const d = regionMap(P, w, h, rx0, ry0); if (C) C.proMap = { src: P.delta, w, d }; return d; })();
+  const n = w * h;
+  for (let i = 0; i < n; i++) { const a = allow[i] * amount; if (a <= 0) continue; R[i] += d[i] * a; G[i] += d[n + i] * a; B[i] += d[2 * n + i] * a; }
 }
 
 // on by default; localStorage motus.retouchEngine = 'classic' switches back to the ABPN + spot tools

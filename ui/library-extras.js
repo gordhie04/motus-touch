@@ -64,7 +64,7 @@ const LibraryExtras = (() => {
     fdialog.returnValue = '';
     fdialog.onclose = () => {
       const v = fdialog.returnValue; if (v !== 'keep' && v !== 'all') return;
-      if (v === 'all') { const ids = new Set(inside.map(p => p.id)); for (const p of inside) if (p.url?.startsWith('blob:')) URL.revokeObjectURL(p.url);
+      if (v === 'all') { const ids = new Set(inside.map(p => p.id)); for (const p of inside) forgetPhoto(p);
         photos = photos.filter(p => !ids.has(p.id)); if (active && ids.has(active.id)) { active = null; sourceImage = null; previewData = null; renderedData = null; } }
       else for (const p of inside) p.folderId = null;
       folders = folders.filter(f => f.id !== folder.id);
@@ -154,7 +154,7 @@ const LibraryExtras = (() => {
   function applyBoxes() {
     const hidden = boxesHidden(), b = document.getElementById('face-box-toggle');
     document.getElementById('image-frame')?.classList.toggle('face-boxes-hidden', hidden);
-    if (b) { b.innerHTML = icon(hidden ? 'eye' : 'eyeoff') + (hidden ? ' Show face boxes' : ' Hide face boxes'); b.setAttribute('aria-pressed', String(hidden)); }
+    if (b) { b.innerHTML = icon(hidden ? 'eyeoff' : 'eye') + (hidden ? ' Show face boxes' : ' Hide face boxes'); b.setAttribute('aria-pressed', String(hidden)); }
   }
 
   /* ---------- right-click on folders ---------- */

@@ -42,35 +42,44 @@ const REGISTRY = {
   }
 };
 
-let worker = null, seq = 0;
-const pending = new Map(), loaded = new Map();
+// one worker per group of models: each worker has its own memory, so big models can't crowd each other out
+const GROUP = { yunet: 'faces', faceparse: 'faces', motus_touch: 'motus', abpn_detect: 'abpn', abpn_inpaint: 'abpn', abpn_blend: 'abpn' };
+const workers = new Map(), pending = new Map(), loaded = new Map();
+let seq = 0;
 
-function getWorker() {
-  if (worker) return worker;
-  worker = new Worker('engine/model-worker.js');
-  worker.onmessage = ({ data }) => { const p = pending.get(data.id); if (!p) return; pending.delete(data.id); data.ok ? p.resolve(data.result) : p.reject(new Error(data.error)); };
-  worker.onerror = e => { for (const p of pending.values()) p.reject(new Error(e.message || 'Model worker failed')); pending.clear(); };
-  return worker;
+function getWorker(group) {
+  let w = workers.get(group); if (w) return w;
+  w = new Worker('engine/model-worker.js');
+  w.onmessage = ({ data }) => { const p = pending.get(data.id); if (!p) return; pending.delete(data.id); data.ok ? p.resolve(data.result) : p.reject(new Error(data.error)); };
+  w.onerror = e => { for (const [id, p] of pending) if (p.group === group) { p.reject(new Error(e.message || 'Model worker failed')); pending.delete(id); } };
+  workers.set(group, w); return w;
 }
-function call(op, payload, transfer = []) {
-  return new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); getWorker().postMessage({ id, op, payload }, transfer); });
+function call(group, op, payload, transfer = []) {
+  return new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject, group }); getWorker(group).postMessage({ id, op, payload }, transfer); });
 }
+// a worker that ran out of memory is thrown away and started fresh
+function reset(group) {
+  workers.get(group)?.terminate(); workers.delete(group);
+  for (const [id, p] of pending) if (p.group === group) { p.reject(new Error('Model worker restarted')); pending.delete(id); }
+  for (const name of Object.keys(GROUP)) if (GROUP[name] === group) loaded.delete(name);
+}
+const memoryError = e => /memory|out of bounds|allocation|RangeError|worker restarted|worker failed/i.test(e?.message || '');
 function load(name) {
   const m = REGISTRY[name]; if (!m) return Promise.reject(new Error(`Unknown model ${name}`));
-  if (!loaded.has(name)) loaded.set(name, call('load', { name, url: new URL(m.file, location.href).href, sha256: m.sha256 }).catch(e => { loaded.delete(name); throw e; }));
+  if (!loaded.has(name)) loaded.set(name, call(GROUP[name], 'load', { name, url: new URL(m.file, location.href).href, sha256: m.sha256 }).catch(e => { loaded.delete(name); throw e; }));
   return loaded.get(name);
 }
 async function run(name, feeds, fetch = null) {
-  await load(name);
-  const transfer = Object.values(feeds).map(t => t.data?.buffer).filter(Boolean);
-  return call('run', { name, feeds, fetch }, transfer);
+  const copy = Object.fromEntries(Object.entries(feeds).map(([k, t]) => [k, { ...t, data: t.data.slice() }]));   // kept for one retry
+  try {
+    await load(name);
+    return await call(GROUP[name], 'run', { name, feeds, fetch }, Object.values(feeds).map(t => t.data?.buffer).filter(Boolean));
+  } catch (e) {
+    if (!memoryError(e)) throw e;
+    console.warn(`Model ${name} ran out of memory; restarting its worker and retrying`, e);
+    reset(GROUP[name]); await load(name);
+    return call(GROUP[name], 'run', { name, feeds: copy, fetch }, Object.values(copy).map(t => t.data?.buffer).filter(Boolean));
+  }
 }
-// quick end-to-end check: load YuNet and run it on a blank frame
-async function selfTest() {
-  const info = await load('yunet');
-  const out = await run('yunet', { input: { type: 'float32', dims: [1, 3, 640, 640], data: new Float32Array(3 * 640 * 640) } });
-  return { backend: info.backend, outputs: Object.keys(out).length };
-}
-
-return { load, run, selfTest, registry: REGISTRY };
+return { load, run, registry: REGISTRY };
 })();

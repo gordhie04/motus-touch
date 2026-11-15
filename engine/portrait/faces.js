@@ -55,9 +55,43 @@ const MotusFaces = (() => {
     return { crop: { x: x0 / W, y: y0 / H, size: size / W, sizeY: size / H }, labels, S };
   }
 
+  /* Partial faces (profiles, cropped close-ups) are missed by the detector. Fallback: parse the whole photo
+     and, if a large enough face region shows up (skin with nose or lips), use its outline as the face. */
+  async function partial(src, W, H) {
+    const size = Math.max(W, H);
+    // parse() crops 1.9x the box around its centre; give it a box whose crop is the whole photo
+    const b = size / 1.9, cy = H / 2 - size / 2 + size / 2.2, box = { x: (W / 2 - b / 2) / W, y: (cy - b / 2) / H, w: b / W, h: b / H };
+    const p = await parse(src, W, H, box), S = p.S, lab = p.labels;
+    const FACE = new Set([L.skin, L.nose, L.ulip, L.llip, L.mouth, L.leye, L.reye, L.lbrow, L.rbrow]);
+    // largest connected face region
+    const seen = new Uint8Array(S * S); let best = null;
+    for (let i = 0; i < S * S; i++) {
+      if (seen[i] || !FACE.has(lab[i])) continue;
+      const st = [i], px = []; seen[i] = 1;
+      while (st.length) { const j = st.pop(), x = j % S, y = (j / S) | 0; px.push(j);
+        for (const k of [x > 0 ? j - 1 : -1, x < S - 1 ? j + 1 : -1, y > 0 ? j - S : -1, y < S - 1 ? j + S : -1]) if (k >= 0 && !seen[k] && FACE.has(lab[k])) { seen[k] = 1; st.push(k); } }
+      if (!best || px.length > best.length) best = px;
+    }
+    if (!best || best.length < S * S * .03) return null;
+    let x0 = S, y0 = S, x1 = 0, y1 = 0; const cen = {}, ext = {};
+    for (const j of best) { const x = j % S, y = (j / S) | 0, l = lab[j];
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      (cen[l] = cen[l] || [0, 0, 0]); cen[l][0] += x; cen[l][1] += y; cen[l][2]++; }
+    const has = l => cen[l] && cen[l][2] > 20, at = l => [cen[l][0] / cen[l][2], cen[l][1] / cen[l][2]];
+    if (!has(L.nose) && !has(L.ulip) && !has(L.llip)) return null;           // skin alone could be an arm or a back
+    const toImg = ([x, y]) => [(p.crop.x * W + (x + .5) / S * p.crop.size * W) / W, (p.crop.y * H + (y + .5) / S * p.crop.size * W) / H];
+    const bw = x1 - x0, bh = y1 - y0, pt = (fx, fy) => [x0 + bw * fx, y0 + bh * fy];
+    const eyeL = has(L.leye) ? at(L.leye) : has(L.reye) ? at(L.reye) : pt(.32, .38), eyeR = has(L.reye) ? at(L.reye) : has(L.leye) ? at(L.leye) : pt(.68, .38);
+    const nose = has(L.nose) ? at(L.nose) : pt(.5, .58), mouth = has(L.ulip) ? at(L.ulip) : has(L.llip) ? at(L.llip) : pt(.5, .75);
+    const kps = [eyeL, eyeR, nose, [mouth[0] - bw * .08, mouth[1]], [mouth[0] + bw * .08, mouth[1]]].map(toImg);
+    const [ax, ay] = toImg([x0, y0]), [bx, by] = toImg([x1, y1]);
+    return { x: ax, y: ay, w: bx - ax, h: by - ay, score: .5, kps, partial: true };
+  }
+
   async function run(photo, img) {
     const src = toCanvas(img), W = img.width, H = img.height;
     const faces = await detect(src, W, H);
+    if (!faces.length) { const f = await partial(src, W, H); if (f) faces.push(f); }
     for (const f of faces) Object.assign(f, await parse(src, W, H, f));
     return { faces, w: W, h: H };
   }
