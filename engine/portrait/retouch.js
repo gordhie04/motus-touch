@@ -64,7 +64,9 @@ function zoneMaker(kps, rx, ry) {
     f.box = [Math.floor(px - rad), Math.floor(py - rad), Math.ceil(px + rad), Math.ceil(py + rad)];
     return f;
   };
-  return { d, toFace, pts, ell };
+  // like ell, but full strength over most of the ellipse and a soft rim: for zones that should be treated evenly
+  const area = (cu, cv, ru, rv) => { const e = ell(cu, cv, ru, rv), f = (x, y) => { const dx = x - E[0], dy = y - E[1], u = (dx * ux + dy * uy) / d, v = (dx * vx + dy * vy) / d, q = ((u - cu) / ru) ** 2 + ((v - cv) / rv) ** 2; return q >= 1 ? 0 : Math.min(1, (1 - q) / .4); }; f.box = e.box; return f; };
+  return { d, toFace, pts, ell, area };
 }
 
 /* ---------- stage inputs (a stage is recomputed only when one of these changes) ---------- */
@@ -176,21 +178,25 @@ function applyFace(out, face, V, W, H, keep) {
   /* ----- wrinkles: remove dark mid-frequency lines inside each zone ----- */
   const wr = [];
   const add = (path, ...ells) => { const a = amt(WR + path); if (a > 0) wr.push([a, ells]); };
-  add('Forehead wrinkles', Z.ell(0, -1.0, .95, .38));
-  add('Eleven lines', Z.ell(0, -.42, .2, .26));
-  add('Eye wrinkles', Z.ell(zp.re[0] - .36, zp.re[1] + .05, .22, .25), Z.ell(zp.le[0] + .36, zp.le[1] + .05, .22, .25));
-  add('Nasal wrinkles', Z.ell(0, -.05, .25, .2));
-  add('Smile line · left', Z.ell((zp.nose[0] + zp.rm[0]) / 2 - .08, (zp.nose[1] + zp.rm[1]) / 2 + .05, .16, .36));
-  add('Smile line · right', Z.ell((zp.nose[0] + zp.lm[0]) / 2 + .08, (zp.nose[1] + zp.lm[1]) / 2 + .05, .16, .36));
-  add('Cheek wrinkles', Z.ell(-.72, .55, .26, .3), Z.ell(.72, .55, .26, .3));
-  add('Marionette lines', Z.ell(zp.rm[0] - .02, zp.rm[1] + .32, .13, .26), Z.ell(zp.lm[0] + .02, zp.lm[1] + .32, .13, .26));
-  add('Perioral wrinkles', Z.ell((zp.rm[0] + zp.lm[0]) / 2, (zp.rm[1] + zp.lm[1]) / 2, .62, .42));
+  const mouthU = (zp.rm[0] + zp.lm[0]) / 2, mouthV = (zp.rm[1] + zp.lm[1]) / 2;
+  add('Forehead wrinkles', Z.area(0, -1.0, 1.35, .72));
+  add('Eleven lines', Z.area(0, -.32, .34, .4));
+  add('Eye wrinkles', Z.area(zp.re[0] - .4, zp.re[1] + .1, .4, .5), Z.area(zp.le[0] + .4, zp.le[1] + .1, .4, .5), Z.area(zp.re[0], zp.re[1] + .36, .42, .24), Z.area(zp.le[0], zp.le[1] + .36, .42, .24));
+  add('Nasal wrinkles', Z.area(0, .12, .34, .34));
+  add('Smile line · left', Z.area((zp.nose[0] + zp.rm[0]) / 2 - .1, (zp.nose[1] + zp.rm[1]) / 2 + .05, .27, .55));
+  add('Smile line · right', Z.area((zp.nose[0] + zp.lm[0]) / 2 + .1, (zp.nose[1] + zp.lm[1]) / 2 + .05, .27, .55));
+  add('Cheek wrinkles', Z.area(-.8, .62, .45, .62), Z.area(.8, .62, .45, .62));
+  add('Marionette lines', Z.area(zp.rm[0] - .04, zp.rm[1] + .36, .24, .42), Z.area(zp.lm[0] + .04, zp.lm[1] + .36, .24, .42));
+  add('Perioral wrinkles', Z.area(mouthU, mouthV, .78, .55));
   if (wr.length) {
-    const Y = new Float32Array(n); for (let i = 0; i < n; i++) Y[i] = luma(R[i], G[i], B[i]);
-    const a = skinBlur(Y, FW * .004), b = skinBlur(Y, FW * .022);
+    // Skin is split into four layers by size: pores, fine lines, creases, and the smooth base underneath. Wrinkles live in the two middle
+    // layers, so those are faded out inside each zone while the pores stay, which keeps the skin looking like skin instead of plastic.
     const strength = new Float32Array(n); for (const [k, ells] of wr) zone(ells, skin, k, strength);
-    const st = blur(strength, w, h, FW * .01);
-    for (let i = 0; i < n; i++) if (st[i] > 0 && skin[i]) { const band = a[i] - b[i]; if (band < 0) { const lift = -band * st[i] * 1.1; R[i] += lift; G[i] += lift; B[i] += lift; } }
+    const st = blur(strength, w, h, FW * .02), s1 = Math.max(1, FW * .0028), s2 = FW * .014, s3 = FW * .05;
+    for (const c of [R, G, B]) { const a = skinBlur(c, s1), b = skinBlur(c, s2), d = skinBlur(c, s3);
+      for (let i = 0; i < n; i++) { if (st[i] <= 0 || !skin[i]) continue; const k = Math.min(1, st[i]);
+        const coarse = b[i] - d[i], mid = a[i] - b[i];   // the dark side of each layer is the crease itself; the light side is kept more, so the face keeps its shape
+        c[i] = d[i] + coarse * (1 - (coarse < 0 ? .6 : .25) * k) + mid * (1 - (mid < 0 ? .95 : .6) * k) + (c[i] - a[i]) * (1 - .25 * k); } }
   }
 
   if (keep) { C.k1 = K1; C.s1 = save(); } }
