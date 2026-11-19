@@ -39,11 +39,17 @@ const REGISTRY = {
     sha256: '086ca62b2cad5e4d1e486a776cdce6e97f1dd31bee381af867896d437fddae43',
     license: 'Apache-2.0', source: 'https://modelscope.cn/models/damo/cv_unet_skin-retouching',
     purpose: 'Skin evening blend layer (ABPN)'
+  },
+  hairseg: {
+    file: 'models/selfie_multiclass_256x256.onnx',
+    sha256: '7acd081043fff97d2b52d3eddec72a566583745fdfdd5be85143e21f4d2a8a98',
+    license: 'Apache-2.0', source: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite',
+    purpose: 'Hair segmentation (MediaPipe multiclass selfie segmenter)'
   }
 };
 
 // one worker per group of models: each worker has its own memory, so big models can't crowd each other out
-const GROUP = { yunet: 'faces', faceparse: 'faces', motus_touch: 'motus', abpn_detect: 'abpn', abpn_inpaint: 'abpn', abpn_blend: 'abpn' };
+const GROUP = { yunet: 'faces', faceparse: 'faces', hairseg: 'faces', motus_touch: 'motus', abpn_detect: 'abpn', abpn_inpaint: 'abpn', abpn_blend: 'abpn' };
 const workers = new Map(), pending = new Map(), loaded = new Map();
 let seq = 0;
 

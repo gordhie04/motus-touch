@@ -151,7 +151,7 @@ function applyFace(out, face, V, W, H, keep) {
   const done = new Float32Array(n), keepMole = new Uint8Array(n);
   if (ai && ai.spots.length && (acne > 0 || freck > 0 || mole > 0)) {
     // 1. acne and bumps: ABPN repaints each one from the skin around it; a weaker slider keeps only the surest spots
-    const amount = ai.spots.map(sp => Math.min(1, sp.kind === 'mole' ? mole : sp.kind === 'acne' ? acne : freck)), share = ai.spots.map((sp, c) => amount[c] > 0 ? clamp01((sp.peak - (.85 - .5 * amount[c])) / .1) : 0);
+    const amount = ai.spots.map(sp => Math.min(1, sp.kind === 'mole' ? mole : sp.kind === 'acne' ? acne : freck)), share = ai.spots.map((sp, c) => amount[c] > 0 ? clamp01((sp.peak - (.62 - .22 * amount[c])) / .1) : 0);
     const beard = beardSkip ? (C.beard || (C.beard = (() => { const m = new Uint8Array(n); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (beardSkip(x, y)) m[y * w + x] = 1; return m; })())) : null;
     healSpots(R, G, B, ai, share, amount, C, w, h, rx0, ry0, beard, done, mole > 0 ? null : keepMole);
   }
@@ -192,11 +192,29 @@ function applyFace(out, face, V, W, H, keep) {
     // Skin is split into four layers by size: pores, fine lines, creases, and the smooth base underneath. Wrinkles live in the two middle
     // layers, so those are faded out inside each zone while the pores stay, which keeps the skin looking like skin instead of plastic.
     const strength = new Float32Array(n); for (const [k, ells] of wr) zone(ells, skin, k, strength);
-    const st = blur(strength, w, h, FW * .02), s1 = Math.max(1, FW * .0028), s2 = FW * .014, s3 = FW * .05;
-    for (const c of [R, G, B]) { const a = skinBlur(c, s1), b = skinBlur(c, s2), d = skinBlur(c, s3);
-      for (let i = 0; i < n; i++) { if (st[i] <= 0 || !skin[i]) continue; const k = Math.min(1, st[i]);
-        const coarse = b[i] - d[i], mid = a[i] - b[i];   // the dark side of each layer is the crease itself; the light side is kept more, so the face keeps its shape
-        c[i] = d[i] + coarse * (1 - (coarse < 0 ? .6 : .25) * k) + mid * (1 - (mid < 0 ? .95 : .6) * k) + (c[i] - a[i]) * (1 - .25 * k); } }
+    // creases are narrower than s3, broad shading (cheekbones, eye sockets) is wider and stays in the base; pores are left as they are,
+    // and the strength fades out over the skin edge so there is no seam where the skin mask ends
+    const st = blur(strength, w, h, FW * .02), s1 = Math.max(1, FW * .0028), s2 = FW * .012, s3 = FW * .032;
+    const edge = once('wrEdge', () => blur(skin, w, h, FW * .008));
+    // Decide from brightness, once per pixel, how much of each layer to keep, and apply that to all three channels alike:
+    // deciding per channel shifted the colour, and taking out every small dip lifted the whole zone, which read as a grey-white wash.
+    // Only dips clearly deeper than the skin's own texture around them count as creases.
+    const pre = [R.slice(), G.slice(), B.slice()];   // the image as it was just before this step
+    const bands = [R, G, B].map(c => { const a = skinBlur(c, s1), b = skinBlur(c, s2), d = skinBlur(c, s3); return { c, a, b, d }; });
+    const Y = (k, i) => .2126 * bands[0][k][i] + .7152 * bands[1][k][i] + .0722 * bands[2][k][i];
+    const mY = new Float32Array(n), cY = new Float32Array(n), m2 = new Float32Array(n), c2 = new Float32Array(n);
+    for (let i = 0; i < n; i++) { if (!skin[i]) continue; mY[i] = Y('a', i) - Y('b', i); cY[i] = Y('b', i) - Y('d', i); m2[i] = mY[i] * mY[i]; c2[i] = cY[i] * cY[i]; }
+    const mT = blur(m2, w, h, FW * .04), cT = blur(c2, w, h, FW * .06);   // typical size of each layer's ups and downs nearby
+    for (let i = 0; i < n; i++) { if (st[i] <= 0 || !skin[i]) continue; const k = Math.min(1, st[i]) * clamp01((edge[i] - .5) * 2.5);
+      const sm = Math.sqrt(mT[i]) + 1e-4, sc = Math.sqrt(cT[i]) + 1e-4;
+      const dm = clamp01((-mY[i] / sm - .6) / 1.2), dc = clamp01((-cY[i] / sc - .4) / 1.2);   // 0 = ordinary texture, 1 = clearly a crease
+      const fm = 1 - (.2 + .7 * dm) * k, fc = 1 - (.15 + .6 * dc) * k;
+      for (const { c, a, b, d } of bands) c[i] = d[i] + (b[i] - d[i]) * fc + (a[i] - b[i]) * fm + (c[i] - a[i]); }
+    // filling creases raises the average; take that broad rise back out so only the lines change, not the overall tone of the skin
+    const sb = FW * .05, sd = den('skin', skin, sb);
+    for (const [j, { c }] of bands.entries()) { const o = pre[j], dl = new Float32Array(n);
+      for (let i = 0; i < n; i++) if (skin[i]) dl[i] = c[i] - o[i];
+      const low = blur(dl, w, h, sb); for (let i = 0; i < n; i++) if (st[i] > 0 && skin[i] && sd[i] > 1e-4) c[i] -= low[i] / sd[i]; }
   }
 
   if (keep) { C.k1 = K1; C.s1 = save(); } }
@@ -378,35 +396,6 @@ function applyFace(out, face, V, W, H, keep) {
     });
   }
 
-  /* ----- hair ----- */
-  const hairSel = P('Hair/Hair color/Hair color', 'Original'), hairAmt = amt('Hair/Hair color/Hair color amount');
-  const hTemp = (+P('Hair/Hair color/Hair color temperature')) / 100, hSat = amt('Hair/Hair color/Hair color saturation');
-  const smooth = amt('Hair/Cleanup/Smooth hair'), frizz = (+P('Hair/Cleanup/Tame frizzy hair', 100)) / 100, hShine = amt('Hair/Cleanup/Hair shine'), gray = amt('Hair/Cleanup/White hair blackening');
-  const HAIR = { Black: [25, .1, .1], Brown: [24, .36, .26], Blonde: [40, .42, .55] };   // hue, saturation, target mean lightness
-  if ((hairAmt > 0 && hairSel !== 'Original') || hTemp || hSat > 0 || smooth > 0 || hShine > 0 || gray > 0) {
-    const hm = once('hair', () => is(FL.hair)); let c = 0, sy = 0; for (let i = 0; i < n; i++) if (hm[i]) { c++; sy += luma(R[i], G[i], B[i]); }
-    if (c > 50) {
-      // soft edge on both sides of the hair line, but only lightly onto skin (bangs over a forehead)
-      const meanY = sy / c, hs = once('hairSoft', () => { const b = blur(hm, w, h, Math.max(1, FW * .006)); for (let i = 0; i < n; i++) if (!hm[i] && skin[i]) b[i] *= .35; return b; });
-      const sig = FW * .006 * (.5 + frizz), hd = smooth > 0 ? den('hair', hm, sig) : null, sR = hd && mblur(R, hm, w, h, sig, hd), sG = hd && mblur(G, hm, w, h, sig, hd), sB = hd && mblur(B, hm, w, h, sig, hd);
-      const target = HAIR[hairSel];
-      for (let i = 0; i < n; i++) { const m = hs[i]; if (m <= 0) continue; let r = R[i], g = G[i], b = B[i];
-        if (smooth > 0) { const k = smooth * .7; r += (sR[i] - r) * k; g += (sG[i] - g) * k; b += (sB[i] - b) * k; }
-        if (gray > 0) { const y = luma(r, g, b), mx = Math.max(r, g, b), mn = Math.min(r, g, b), k = gray * clamp01((y - meanY - .05) / .15) * clamp01(1 - (mx - mn) * 6);
-          if (k > 0) { const f = 1 - k * .6; r = r * f + .02 * k; g *= f; b *= f; } }
-        if (hairAmt > 0 && target) {
-          // remap lightness with a curve (not a multiplier) so highlights never blow out, keep a little original color variation
-          const y = clamp01(luma(r, g, b)), ex = Math.min(2.2, Math.max(.45, Math.log(target[2]) / Math.log(Math.min(.95, Math.max(.03, meanY))))), ly = Math.pow(y, ex);
-          const [cr, cg, cb] = hsl2rgb(target[0], target[1] * (.6 + .8 * ly * (1 - ly)), ly), k = hairAmt;
-          const or = ly + (r - y) * .25, og = ly + (g - y) * .25, ob = ly + (b - y) * .25;
-          r += (cr * .8 + or * .2 - r) * k; g += (cg * .8 + og * .2 - g) * k; b += (cb * .8 + ob * .2 - b) * k; }
-        if (hTemp) { r += hTemp * .05; b -= hTemp * .05; }
-        if (hSat > 0) { const y = luma(r, g, b), s = 1 + hSat * .8; r = y + (r - y) * s; g = y + (g - y) * s; b = y + (b - y) * s; }
-        if (hShine > 0) { const y = luma(r, g, b), d = hShine * .12 * clamp01((y - meanY) / .2); r += d; g += d; b += d; }
-        R[i] += (r - R[i]) * m; G[i] += (g - G[i]) * m; B[i] += (b - B[i]) * m; }
-    }
-  }
-
   // write back only what changed
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x; if (R[i] === R0[i] && G[i] === G0[i] && B[i] === B0[i]) continue;
@@ -474,12 +463,118 @@ function blendLayer(R, G, B, ai, degree, mask, w, h, rx0, ry0) {
         const mm = (m - .5) * k + .5, cv = clamp01(ch[c][i]); ch[c][i] = (1 - 2 * mm) * cv * cv + 2 * mm * cv; } } }
 }
 
+/* ---------- hair: its own region (long hair reaches well past the face), mask refined against the photo ---------- */
+function box1(src, w, h, r) { const a = new Float32Array(src.length), b = new Float32Array(src.length); boxH(src, a, w, h, r); boxV(a, b, w, h, r); return b; }
+// guided filter (He et al.): the coarse mask snaps to the edges of the photo itself, so strands and flyaways are followed
+function guided(I, p, w, h, r, eps) {
+  const n = I.length, II = new Float32Array(n), Ip = new Float32Array(n); for (let i = 0; i < n; i++) { II[i] = I[i] * I[i]; Ip[i] = I[i] * p[i]; }
+  const mI = box1(I, w, h, r), mp = box1(p, w, h, r), mII = box1(II, w, h, r), mIp = box1(Ip, w, h, r), A = new Float32Array(n), Bc = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const v = mII[i] - mI[i] * mI[i]; A[i] = (mIp[i] - mI[i] * mp[i]) / (v + eps); Bc[i] = mp[i] - A[i] * mI[i]; }
+  const mA = box1(A, w, h, r), mB = box1(Bc, w, h, r), o = new Float32Array(n); for (let i = 0; i < n; i++) o[i] = clamp01(mA[i] * I[i] + mB[i]); return o;
+}
+function hairRegion(px, face, W, H) {
+  const g = face.hair; if (!g) return null;
+  const S = g.S, gx = g.x * W, gy = g.y * H, gw = g.w * W, gh = g.h * H; let x0 = S, y0 = S, x1 = -1, y1 = -1;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) if (g.p[y * S + x] > .02) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return null;
+  const FW = Math.max(20, face.w * W), pad = Math.ceil(FW * .06);
+  const rx0 = Math.max(0, Math.floor(gx + x0 / S * gw - pad)), ry0 = Math.max(0, Math.floor(gy + y0 / S * gh - pad));
+  const rx1 = Math.min(W, Math.ceil(gx + (x1 + 1) / S * gw + pad)), ry1 = Math.min(H, Math.ceil(gy + (y1 + 1) / S * gh + pad));
+  const w = rx1 - rx0, h = ry1 - ry0; if (w < 8 || h < 8) return null;
+  const n = w * h, coarse = new Float32Array(n), I = new Float32Array(n);
+  for (let y = 0; y < h; y++) { let v = (ry0 + y + .5 - gy) / gh * S - .5; v = Math.max(0, Math.min(S - 1, v)); const v0 = v | 0, v1 = Math.min(S - 1, v0 + 1), ty = v - v0;
+    for (let x = 0; x < w; x++) { let u = (rx0 + x + .5 - gx) / gw * S - .5; const i = y * w + x, j = ((ry0 + y) * W + rx0 + x) * 4;
+      I[i] = luma(px[j], px[j + 1], px[j + 2]) / 255;
+      if (u < -.5 || u > S - .5 || (ry0 + y + .5 - gy) / gh * S < 0 || (ry0 + y + .5 - gy) / gh * S > S) continue;
+      u = Math.max(0, Math.min(S - 1, u)); const u0 = u | 0, u1 = Math.min(S - 1, u0 + 1), tx = u - u0, P = g.p;
+      coarse[i] = (P[v0 * S + u0] * (1 - tx) + P[v0 * S + u1] * tx) * (1 - ty) + (P[v1 * S + u0] * (1 - tx) + P[v1 * S + u1] * tx) * ty; } }
+  const c = blur(coarse, w, h, Math.max(1, FW * .004, 1.1 * gw / S));   // at least the size of one cell of the model's grid, or its steps show
+  for (let i = 0; i < n; i++) { const t = clamp01((c[i] - .3) / .4); c[i] = t * t * (3 - 2 * t); }   // "maybe hair" at the border is not hair: no halo on the background
+  const m = guided(I, c, w, h, Math.max(2, Math.round(FW * .02)), 1e-3);
+  let cnt = 0; for (let i = 0; i < n; i++) { if (c[i] < .02) m[i] = 0; if (m[i] > .5) cnt++; }
+  if (cnt < 50) return null;
+  const hm = new Float32Array(n); for (let i = 0; i < n; i++) hm[i] = m[i] > .5 ? 1 : 0;
+  return { w, h, n, rx0, ry0, m, hm, FW, den: new Map() };
+}
+/* Hair dye. Each colour is a gradient (shadow, mid, highlight). Every hair pixel is placed on that gradient by where its
+   brightness sits within this person's own hair, so strands, curls and highlights keep their structure and only the colour changes. */
+const HAIR_DYES = {
+  H01: ['#2b231d', '#6a5847', '#b09b80'], H02: ['#2a170e', '#7a4a2d', '#c08a60'], H03: ['#3a1407', '#a8491b', '#ec9658'],
+  H04: ['#1e0710', '#601b2f', '#a85468'], H05: ['#360806', '#a2261a', '#ea6e52'], H06: ['#2a1a1c', '#6f4d4f', '#b39092'],
+  H07: ['#40262a', '#b17d83', '#f0c4c4'], H08: ['#110d0b', '#2c2420', '#64564c'], H09: ['#0b0f1f', '#27365c', '#6676a0'],
+  H10: ['#22081a', '#7c2552', '#c8709a'], H11: ['#1b1424', '#4f3f68', '#9888b4'], H12: ['#1d1b11', '#56533a', '#9a9672'],
+  H13: ['#182010', '#4b5c33', '#94a674'],
+  Black: ['#110d0b', '#2c2420', '#64564c'], Brown: ['#2a170e', '#7a4a2d', '#c08a60'], Blonde: ['#3a2a16', '#a07e4e', '#e6cf9e']   // older saved edits
+};
+const DARK_HAIR = ['#0b0908', '#221c19', '#463b35'];   // what white-hair blackening dyes grey strands to
+const LIN = new Float32Array(1024), SRGB = new Float32Array(4096);
+for (let i = 0; i < 1024; i++) { const v = i / 1023; LIN[i] = v <= .04045 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }
+for (let i = 0; i < 4096; i++) { const v = i / 4095; SRGB[i] = v <= .0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - .055; }
+const toLin = v => LIN[v <= 0 ? 0 : v >= 1 ? 1023 : (v * 1023 + .5) | 0], toS = v => SRGB[v <= 0 ? 0 : v >= 1 ? 4095 : (v * 4095 + .5) | 0];
+const hexLin = h => [1, 3, 5].map(i => toLin(parseInt(h.slice(i, i + 2), 16) / 255));
+const dyeOf = (sel, custom) => { if (sel === 'Custom') { const m = hexLin(/^#[0-9a-f]{6}$/i.test(custom) ? custom : '#7a4a2d'); return [m.map(v => v * .3), m, m.map(v => v + (1 - v) * .3)]; }
+  const d = HAIR_DYES[sel]; return d ? d.map(hexLin) : null; };
+// position 0..1 (and a little past 1 for sheen) -> linear rgb on the gradient
+function dyeAt(t, [s, m, h], o, sheen = .3) { if (t < .5) { const u = t / .5; for (let c = 0; c < 3; c++) o[c] = s[c] + (m[c] - s[c]) * u; }
+  else { const u = Math.min(1, (t - .5) / .5), sh = t > 1 ? Math.min(1, (t - 1) / .15) * sheen : 0; for (let c = 0; c < 3; c++) { const v = m[c] + (h[c] - m[c]) * u; o[c] = v + (1 - v) * sh; } } return o; }
+function applyHair(out, face, V, W, H, keep) {
+  const P = (path, def = 0) => { const v = V(path); return v === undefined ? def : v; }, amt = path => (+P(path) || 0) / 100;
+  const hairSel = P('Hair/Hair color/Hair color', 'Original'), hairAmt = amt('Hair/Hair color/Hair color amount');
+  const hTemp = (+P('Hair/Hair color/Hair color temperature')) / 100, hSat = amt('Hair/Hair color/Hair color saturation');
+  const smooth = amt('Hair/Cleanup/Smooth hair'), frizz = (+P('Hair/Cleanup/Tame frizzy hair', 100)) / 100, hShine = amt('Hair/Cleanup/Hair shine'), gray = amt('Hair/Cleanup/White hair blackening');
+  const dye = hairAmt > 0 ? dyeOf(hairSel, P('Hair/Hair color/Custom hair color', '#7a4a2d')) : null, dark = gray > 0 ? DARK_HAIR.map(hexLin) : null;
+  if (!(dye || hTemp || hSat > 0 || smooth > 0 || hShine > 0 || gray > 0)) return;
+  const ck = W + 'x' + H; face._hair = face._hair || {}; let C = face._hair[ck];
+  if (C === undefined) { C = hairRegion(out.data, face, W, H); if (keep) face._hair[ck] = C; }
+  if (!C) return;
+  const { w, h, n, rx0, ry0, m: hs, hm, FW } = C, px = out.data;
+  const R = new Float32Array(n), G = new Float32Array(n), B = new Float32Array(n); let sy = 0, c = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * w + x, j = ((ry0 + y) * W + rx0 + x) * 4; R[i] = px[j] / 255; G[i] = px[j + 1] / 255; B[i] = px[j + 2] / 255; if (hm[i]) { c++; sy += luma(R[i], G[i], B[i]); } }
+  const R0 = R.slice(), G0 = G.slice(), B0 = B.slice(), meanY = sy / c;
+  const sig = FW * .006 * (.5 + frizz);
+  let sR, sG, sB; if (smooth > 0) { const k = 'hair@' + sig; let d = C.den.get(k); if (!d) { d = blur(hm, w, h, sig); C.den.clear(); C.den.set(k, d); } sR = mblur(R, hm, w, h, sig, d); sG = mblur(G, hm, w, h, sig, d); sB = mblur(B, hm, w, h, sig, d); }
+  // where this person's hair sits in brightness: dark end, middle, light end (log scale gives the shadows room)
+  let tPos = null, hairLike = null;
+  if (dye || dark) { const ys = []; const step = Math.max(1, Math.floor(c / 60000));
+    for (let i = 0, k = 0; i < n; i++) if (hm[i] && (k++ % step === 0)) ys.push(Math.log(.2126 * toLin(R[i]) + .7152 * toLin(G[i]) + .0722 * toLin(B[i]) + 1e-4));
+    ys.sort((x, y) => x - y); const q = f => ys[Math.min(ys.length - 1, Math.floor(ys.length * f))], a = q(.03), b = q(.5), e = q(.97);
+    const bright = q(.9) + Math.log(2.2);   // far brighter than this hair's own highlights: background showing between strands
+    hairLike = y => clamp01((bright - Math.log(y + 1e-4)) / .6);
+    tPos = y => { const l = Math.log(y + 1e-4); return Math.max(0, Math.min(1.15, l < b ? .5 * (l - a) / (b - a + 1e-6) : .5 + .5 * (l - b) / (e - b + 1e-6))); }; }
+  const o = [0, 0, 0];
+  for (let i = 0; i < n; i++) { const m = hs[i]; if (m <= 0) continue; let r = R[i], g = G[i], b = B[i];
+    if (smooth > 0) { const k = smooth * .7; r += (sR[i] - r) * k; g += (sG[i] - g) * k; b += (sB[i] - b) * k; }
+    if (dark) { const mx = Math.max(r, g, b), mn = Math.min(r, g, b), k = gray * clamp01((.42 - (mx - mn) / (mx + .02)) / .2);   // colourless strands only
+      if (k > 0) { dyeAt(tPos(.2126 * toLin(r) + .7152 * toLin(g) + .0722 * toLin(b)), dark, o, 0); r += (toS(o[0]) - r) * k; g += (toS(o[1]) - g) * k; b += (toS(o[2]) - b) * k; } }
+    if (dye) { const y = .2126 * toLin(r) + .7152 * toLin(g) + .0722 * toLin(b), k = hairAmt * hairLike(y); dyeAt(tPos(y), dye, o); r += (toS(o[0]) - r) * k; g += (toS(o[1]) - g) * k; b += (toS(o[2]) - b) * k; }
+    if (hTemp) { r += hTemp * .05; b -= hTemp * .05; }
+    if (hSat > 0) { const y = luma(r, g, b), s = 1 + hSat * .8; r = y + (r - y) * s; g = y + (g - y) * s; b = y + (b - y) * s; }
+    if (hShine > 0) { const y = luma(r, g, b), d = hShine * .12 * clamp01((y - meanY) / .2); r += d; g += d; b += d; }
+    R[i] += (r - R[i]) * m; G[i] += (g - G[i]) * m; B[i] += (b - B[i]) * m; }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * w + x; if (R[i] === R0[i] && G[i] === G0[i] && B[i] === B0[i]) continue;
+    const j = ((ry0 + y) * W + rx0 + x) * 4; px[j] = clamp01(R[i]) * 255 + .5; px[j + 1] = clamp01(G[i]) * 255 + .5; px[j + 2] = clamp01(B[i]) * 255 + .5; }
+}
+
+/* Small previews of each hair colour on this person's own hair, for the colour picker. `img` should be small (a few hundred px). */
+function hairThumbs(img, analysis, k, options, tw = 132) {
+  const f = analysis.faces[k], W = img.width, H = img.height, out = {};
+  const ch = Math.min(H, f.h * H * 3.1), cw = Math.min(W, ch * .9), x0 = Math.max(0, Math.min(W - cw, (f.x + f.w / 2) * W - cw / 2)), y0 = Math.max(0, Math.min(H - ch, (f.y - f.h * .85) * H));
+  const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H; const tx = tmp.getContext('2d');
+  const c = document.createElement('canvas'); c.width = tw; c.height = Math.round(tw * ch / cw); const cx = c.getContext('2d');
+  for (const opt of options) { const im = new ImageData(new Uint8ClampedArray(img.data), W, H);
+    applyHair(im, f, p => p === 'Hair/Hair color/Hair color' ? opt : p === 'Hair/Hair color/Hair color amount' ? 100 : undefined, W, H, true);
+    tx.putImageData(im, 0, 0); cx.drawImage(tmp, x0, y0, cw, ch, 0, 0, c.width, c.height); out[opt] = c.toDataURL('image/jpeg', .85); }
+  return out;
+}
+const hairDyes = HAIR_DYES;
+
 /* Apply to a copy of `img` for every face. getV(path, faceIndex) returns the control value for that face. */
 function apply(img, analysis, getV) {
   const out = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height);
   analysis.faces.forEach((f, k) => applyFace(out, f, p => getV(p, k), img.width, img.height, img.width * img.height <= 1.3e7));
+  analysis.faces.forEach((f, k) => applyHair(out, f, p => getV(p, k), img.width, img.height, img.width * img.height <= 1.3e7));
   return out;
 }
 
-return { apply };
+return { apply, hairThumbs, hairDyes };
 })();

@@ -105,7 +105,7 @@ const LibraryExtras = (() => {
       e.addEventListener('drop', ev => { ev.preventDefault(); if (ev.dataTransfer?.files?.length) importFiles(ev.dataTransfer.files); });
     }
     e.classList.toggle('hidden', !show);
-    if (show) { document.getElementById('breadcrumb-photo').textContent = 'No photo'; document.getElementById('filename').textContent = 'No photo selected'; document.getElementById('file-type').textContent = ''; }
+    if (show) { document.getElementById('breadcrumb-photo').textContent = 'No photo'; }
     document.getElementById('editor-screen').classList.toggle('studio-has-no-photo', !!show);
   }
   function openStudio() {
@@ -145,9 +145,12 @@ const LibraryExtras = (() => {
   function faceToggle(hasFaces) {
     let b = document.getElementById('face-box-toggle');
     if (!b) {
-      b = makeButton('', 'original-button face-box-toggle', () => { pref('faceBoxesHidden', boxesHidden() ? '0' : '1'); applyBoxes(); });
-      b.id = 'face-box-toggle'; document.getElementById('original-button').before(b);
+      b = makeButton('', 'face-box-toggle', () => { pref('faceBoxesHidden', boxesHidden() ? '0' : '1'); applyBoxes(); });
+      b.id = 'face-box-toggle';
     }
+    // lives on the person row in the portrait panel; falls back to the image overlay
+    const host = document.getElementById('target-chips');
+    if (host) host.append(b); else document.getElementById('original-button')?.before(b);
     b.classList.toggle('hidden', !hasFaces);
     applyBoxes();
   }

@@ -18,7 +18,7 @@ const LIVE = {
   'Makeup/Existing lip makeup': ['Lip makeup amount', 'Lip makeup saturation', 'Lip makeup luminance', 'Lip makeup dimensionality'],
   'Makeup/Individual components': ['Eyebrows amount', 'Blush amount', 'Lipstick amount'],
   'Hair/Cleanup': ['Smooth hair', 'Tame frizzy hair', 'Hair shine', 'White hair blackening'],
-  'Hair/Hair color': ['Hair color', 'Hair color amount', 'Hair color temperature', 'Hair color saturation']
+  'Hair/Hair color': ['Hair color', 'Custom hair color', 'Hair color amount', 'Hair color temperature', 'Hair color saturation']
 };
 for (const [grp, labels] of Object.entries(LIVE)) for (const l of labels) {
   const c = P.control(`portrait/${grp}/${l}`); if (!c) { console.warn('missing portrait control', grp, l); continue; }
@@ -171,7 +171,7 @@ function afterPanel() {
 function onValue(c, value) {
   // choosing a color with its amount still at 0 would look like nothing happened
   const pairs = { 'Hair color': 'Hair/Hair color/Hair color amount', 'Iris color': 'Eyes/Eye color/Iris color amount', 'Skin tone': 'Skin retouching/Skin tone/Skin tone intensity' };
-  if (pairs[c.label] && value !== 'Original' && value !== 'Custom') {
+  if (pairs[c.label] && value !== 'Original' && (value !== 'Custom' || c.label === 'Hair color')) {
     const amtC = P.control('portrait/' + pairs[c.label]), key = draftKey({ ...amtC, owner: 'portrait' });
     if (!active.drafts[key]) { active.drafts[key] = 70; setTimeout(() => { const sc = $('#tool-scroll').scrollTop; buildPanel(); $('#tool-scroll').scrollTop = sc; }); }
   }
@@ -189,5 +189,21 @@ function onAction(c) {
   return false;
 }
 
-return { process, processFull, targets, afterPanel, onValue, onAction, hasEdits, childDefaults: CHILD_DEFAULTS };
+// previews of every hair colour on the selected person's own hair (the largest face when editing everyone)
+const thumbCache = new Map();
+function hairThumbs(photo, options) {
+  const a = MotusFaces.get(photo); if (!a?.faces.length || !previewData || active !== photo) return null;
+  let k = persons(photo).indexOf(photo.target);
+  if (k < 0) k = a.faces.reduce((best, f, i) => f.w * f.h > a.faces[best].w * a.faces[best].h ? i : best, 0);
+  const key = photo.id + '|' + k; if (thumbCache.has(key)) return thumbCache.get(key);
+  const p = new Promise(res => setTimeout(() => {
+    try { const s = Math.min(1, 520 / Math.max(previewData.width, previewData.height)), W = Math.round(previewData.width * s), H = Math.round(previewData.height * s);
+      const src = document.createElement('canvas'); src.width = previewData.width; src.height = previewData.height; src.getContext('2d').putImageData(previewData, 0, 0);
+      const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(src, 0, 0, W, H);
+      res(MotusRetouch.hairThumbs(x.getImageData(0, 0, W, H), a, k, options)); }
+    catch (e) { console.error('Hair colour previews failed', e); thumbCache.delete(key); res(null); } }, 40));
+  thumbCache.set(key, p); return p;
+}
+
+return { process, processFull, targets, afterPanel, onValue, onAction, hasEdits, hairThumbs, childDefaults: CHILD_DEFAULTS };
 })();

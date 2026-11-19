@@ -27,3 +27,10 @@ motus_touch.onnx  (sha256 3b4e59d07f3dee7532f71b76914a386a315039422ec4cf70100b24
   Trained for Motus-Touch on ~14,500 face pairs from FFHQR (Shafaei et al., "AutoRetouch", WACV 2021; Skylab Technologies)
   and FFHQ (Karras et al., NVIDIA), both CC BY-NC-SA 4.0. Network adapted from ABPN DetectionUNet (Alibaba DAMO, Apache-2.0).
   Because of the training data, this model is for personal, non-commercial use only.
+
+selfie_multiclass_256x256.onnx
+  MediaPipe multi-class selfie segmentation (Google), Apache License 2.0. Used for the hair mask.
+  https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite
+  tflite sha256 c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0
+  Converted to ONNX with tf2onnx 1.17 (opset 17); every pixel's class matches the tflite model, max logit difference 0.00005.
+  sha256 7acd081043fff97d2b52d3eddec72a566583745fdfdd5be85143e21f4d2a8a98

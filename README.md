@@ -47,7 +47,7 @@ Color adjustments now run on the GPU (WebGL2) in `engine/`, for both the preview
 
 ## Phase 2: portrait retouching (November 2026)
 
-Two local AI models now run in the background worker: **YuNet** finds faces, and **BiSeNet face parsing** splits each face into skin, brows, eyes, glasses, nose, mouth, lips and hair. The retouching itself (`engine/portrait/retouch.js`) is image processing on those masks, so it runs at full resolution on export.
+Three local AI models now run in the background worker: **YuNet** finds faces, **BiSeNet face parsing** splits each face into skin, brows, eyes, glasses, nose, mouth and lips, and **MediaPipe's multiclass segmenter** finds each person's hair, including long hair below the shoulders. The retouching itself (`engine/portrait/retouch.js`) is image processing on those masks, so it runs at full resolution on export.
 
 - **Connected:** blemishes (acne, freckles, moles), shine, dark circles, eye bags, glasses glare, lip wrinkles, all 9 wrinkle zones, skin evening/smoothing/softening, texture, clarity, finish and glossiness, complexion, skin tone, temperature, tint, radiance and rosiness, teeth, eyes (brightness, whites, veins, red eye, iris color), highlight and contour, brows, lip makeup, lipstick, blush, and hair color, smoothing, shine and white-hair blackening.
 - **Per person:** the chips show All plus Person 1, 2, ... (left to right). Click a face box on the photo or a chip to edit one person; anything not set for that person follows All.

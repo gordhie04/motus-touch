@@ -88,11 +88,51 @@ const MotusFaces = (() => {
     return { x: ax, y: ay, w: bx - ax, h: by - ay, score: .5, kps, partial: true };
   }
 
+  /* Hair mask from the MediaPipe multiclass segmenter (class 1 = hair) on a tall crop around each head, so long hair is covered.
+     BiSeNet's hair label stops at the edge of its face crop and often marks dark background, leaves or hands as hair.
+     Stored as a 256x256 probability grid in normalized coordinates, like the face labels. */
+  async function hairSeg(src, W, H, f) {
+    const fw = f.w * W, fh = f.h * H, cx = (f.x + f.w / 2) * W, cy = (f.y + f.h / 2) * H;
+    const cw = fw * 4.2, ch = fh * 5.5, x0 = cx - cw / 2, y0 = cy - fh * 1.6, S = 256;
+    const c = document.createElement('canvas'); c.width = S; c.height = S;
+    const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S, S);
+    ctx.imageSmoothingQuality = 'high'; ctx.drawImage(src, x0, y0, cw, ch, 0, 0, S, S);
+    const d = ctx.getImageData(0, 0, S, S).data, x = new Float32Array(S * S * 3);
+    for (let i = 0; i < S * S; i++) { x[i * 3] = d[i * 4] / 255; x[i * 3 + 1] = d[i * 4 + 1] / 255; x[i * 3 + 2] = d[i * 4 + 2] / 255; }   // NHWC RGB 0..1
+    const out = await MotusModels.run('hairseg', { input_29: { type: 'float32', dims: [1, S, S, 3], data: x } });
+    const o = Object.values(out)[0].data, K = 6, p = new Float32Array(S * S);
+    for (let i = 0; i < S * S; i++) { let m = -Infinity; for (let k = 0; k < K; k++) m = Math.max(m, o[i * K + k]);
+      let sum = 0; for (let k = 0; k < K; k++) sum += Math.exp(o[i * K + k] - m); p[i] = Math.exp(o[i * K + 1] - m) / sum; }
+    return { x: x0 / W, y: y0 / H, w: cw / W, h: ch / H, S, p };
+  }
+  // fallback if the segmenter can't run: BiSeNet's own hair label
+  function parseHair(f) { const n = f.S * f.S, p = new Float32Array(n); for (let i = 0; i < n; i++) p[i] = f.labels[i] === L.hair ? 1 : 0;
+    return { x: f.crop.x, y: f.crop.y, w: f.crop.size, h: f.crop.sizeY, S: f.S, p }; }
+  /* Keep only hair attached to this person's head, and where two people's hair touches, give each cell to the nearer face
+     (distance in units of each face's width, vertical counted less so long hair stays with its head). */
+  function ownHair(faces, k, W, H) {
+    const f = faces[k], g = f.hair, S = g.S, p = g.p, n = S * S;
+    const at = i => [(g.x + ((i % S) + .5) / S * g.w) * W, (g.y + (((i / S) | 0) + .5) / S * g.h) * H];
+    const fx = (f.x + f.w / 2) * W, fy = (f.y + f.h / 2 - f.h * .15) * H, rx = f.w * W * .9, ry = f.h * H;
+    const reach = new Uint8Array(n), st = [];
+    for (let i = 0; i < n; i++) { if (p[i] <= .5) continue; const [x, y] = at(i); if (((x - fx) / rx) ** 2 + ((y - fy) / ry) ** 2 <= 1) { reach[i] = 1; st.push(i); } }
+    while (st.length) { const j = st.pop(), x = j % S, y = (j / S) | 0;
+      for (const q of [x > 0 ? j - 1 : -1, x < S - 1 ? j + 1 : -1, y > 0 ? j - S : -1, y < S - 1 ? j + S : -1]) if (q >= 0 && !reach[q] && p[q] > .5) { reach[q] = 1; st.push(q); } }
+    const near = new Uint8Array(n);   // one cell of margin so the soft edge survives
+    for (let i = 0; i < n; i++) if (reach[i]) { const x = i % S, y = (i / S) | 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const a = x + dx, b = y + dy; if (a >= 0 && b >= 0 && a < S && b < S) near[b * S + a] = 1; } }
+    const cen = faces.map(o => [(o.x + o.w / 2) * W, (o.y + o.h / 2) * H, o.w * W]);
+    for (let i = 0; i < n; i++) { if (!near[i]) { p[i] = 0; continue; } if (faces.length < 2) continue;
+      const [x, y] = at(i); let best = 0, bd = Infinity; cen.forEach(([cx, cy, w], j) => { const dd = Math.hypot(x - cx, (y - cy) * .6) / w; if (dd < bd) { bd = dd; best = j; } });
+      if (best !== k) p[i] = 0; }
+  }
+
   async function run(photo, img) {
     const src = toCanvas(img), W = img.width, H = img.height;
     const faces = await detect(src, W, H);
     if (!faces.length) { const f = await partial(src, W, H); if (f) faces.push(f); }
     for (const f of faces) Object.assign(f, await parse(src, W, H, f));
+    for (const f of faces) { try { f.hair = await hairSeg(src, W, H, f); } catch (e) { console.warn('Hair segmenter failed; using face parsing hair', e); f.hair = parseHair(f); } }
+    faces.forEach((f, k) => ownHair(faces, k, W, H));
     return { faces, w: W, h: H };
   }
 
