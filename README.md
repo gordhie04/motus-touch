@@ -4,7 +4,9 @@ A free, local personal photo studio. Near-black navy and charcoal interface, bro
 
 ## Open
 
-Double-click `Start Motus-Touch.command` (Windows: `Start Motus-Touch (Windows).bat`), or run `python3 serve.py`. It serves this folder on http://127.0.0.1:4173 with no caching, security headers and cross-origin isolation (lets AI models use several CPU cores), then opens your browser. Opening `index.html` directly from Finder does not work for editing.
+Online: https://gordhie04.github.io/motus-touch/
+
+Locally: Double-click `Start Motus-Touch.command` (Windows: `Start Motus-Touch (Windows).bat`), or run `python3 serve.py`. It serves this folder on http://127.0.0.1:4173 with no caching, security headers and cross-origin isolation (lets AI models use several CPU cores), then opens your browser. Opening `index.html` directly from Finder does not work for editing.
 
 No installation, build process or runtime external requests are required. The original project directory remains `forma-local` to preserve the existing local URL.
 
