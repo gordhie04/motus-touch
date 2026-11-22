@@ -1,0 +1,36 @@
+Models bundled with Motus-Touch. Each is pinned by SHA-256 in engine/models.js and refused if it doesn't match.
+
+face_detection_yunet_2023mar.onnx
+  OpenCV Zoo, YuNet face detector, MIT License
+  https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet
+  sha256 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+
+face_parsing_bisenet_resnet18.onnx
+  BiSeNet face parsing (ResNet-18), yakhyo/face-parsing, code MIT License (commit 4f0632b)
+  Weights were trained on CelebAMask-HQ, whose dataset terms allow non-commercial research use only.
+  Fine for personal use; replace before any commercial distribution.
+  https://github.com/yakhyo/face-parsing/releases/download/v0.0.1/resnet18.onnx
+  sha256 0d9bd318e46987c3bdbfacae9e2c0f461cae1c6ac6ea6d43bbe541a91727e33f
+
+abpn_detect_fp16.onnx, abpn_inpaint_fp16.onnx, abpn_blend_fp16.onnx
+  ABPN skin retouching (Lei et al., "ABPN: Adaptive Blend Pyramid Network for Real-Time Local Retouching
+  of Ultra High-Resolution Photo", CVPR 2022), Alibaba DAMO Academy, Apache License 2.0
+  https://modelscope.cn/models/damo/cv_unet_skin-retouching
+  Converted from the original PyTorch weights (pytorch_model.pt sha256 760d0c0b95c4e0a692165677fe2b82dbdf8fbbd4a3780ca966599c627b082993,
+  joint_20210926.pth sha256 c9e1388b19d9334c90db08308c86de208f535920ee381ae8a9cb63484a78351a) to ONNX fp16;
+  outputs checked against PyTorch (max difference 0.019 detection logits, 0.0006 inpainting, 0.001 blend).
+  abpn_detect_fp16   sha256 5e54f4d76cb30277369a7b6d49dd87f8744b469539427fd341578fdba4876409
+  abpn_inpaint_fp16  sha256 5612826f3a56d85a08fc1bec990510c23ffc789bf3e95aebb8f6ff7c445b38cf
+  abpn_blend_fp16    sha256 086ca62b2cad5e4d1e486a776cdce6e97f1dd31bee381af867896d437fddae43
+
+motus_touch.onnx  (sha256 3b4e59d07f3dee7532f71b76914a386a315039422ec4cf70100b24d572c70426)
+  Trained for Motus-Touch on ~14,500 face pairs from FFHQR (Shafaei et al., "AutoRetouch", WACV 2021; Skylab Technologies)
+  and FFHQ (Karras et al., NVIDIA), both CC BY-NC-SA 4.0. Network adapted from ABPN DetectionUNet (Alibaba DAMO, Apache-2.0).
+  Because of the training data, this model is for personal, non-commercial use only.
+
+selfie_multiclass_256x256.onnx
+  MediaPipe multi-class selfie segmentation (Google), Apache License 2.0. Used for the hair mask.
+  https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite
+  tflite sha256 c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0
+  Converted to ONNX with tf2onnx 1.17 (opset 17); every pixel's class matches the tflite model, max logit difference 0.00005.
+  sha256 7acd081043fff97d2b52d3eddec72a566583745fdfdd5be85143e21f4d2a8a98

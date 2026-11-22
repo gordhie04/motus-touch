@@ -1,0 +1,7 @@
+/* Motus-Touch engine additions */
+.image-frame>canvas{width:100%;height:100%;display:block;border-radius:3px}
+.stage.engine-picking .image-frame{cursor:crosshair}
+.engine-curve-box{margin:4px 0 10px;padding:6px;border-radius:8px;background:#0a1222;border:1px solid #ffffff14}
+.engine-curve{width:100%;aspect-ratio:1;display:block;cursor:crosshair;touch-action:none}
+.engine-note{font-size:11px;opacity:.7;margin:4px 0 2px}
+.engine-file-warning{position:fixed;z-index:9999;left:50%;top:16px;transform:translateX(-50%);max-width:640px;padding:14px 18px;border-radius:12px;background:#3a1f24;border:1px solid #eb6c8c;color:#ffe9ee;font:14px/1.45 system-ui,sans-serif;box-shadow:0 10px 40px #0009}

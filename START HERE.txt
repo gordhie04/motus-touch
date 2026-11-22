@@ -1,0 +1,28 @@
+MOTUS-TOUCH — START HERE
+
+This ZIP contains the complete local website source, sample photograph,
+reference notes and interface screenshots. It is not a desktop installer.
+
+START IT
+Mac: double-click "Start Motus-Touch.command". Your browser opens the editor.
+     The first time, macOS may block it: right-click the file > Open > Open.
+Windows: double-click "Start Motus-Touch (Windows).bat".
+Keep the Terminal window that opens while you edit. Close it to stop.
+
+Don't open index.html directly from Finder: the browser blocks photo
+editing for files opened that way.
+
+If you still see the older version, press Cmd+Shift+R (Windows: Ctrl+Shift+R)
+once to clear the browser's cached copy.
+
+Manual start (Python 3): python3 serve.py
+
+Your imported photos and saved edits live in your browser's local storage;
+they are not contained in this ZIP. To see the existing library, use the
+same browser/profile and exact address above. Keep original photos backed up.
+
+All color adjustments and the AI color module work (GPU engine, phase 1).
+Portrait retouching and other AI controls are still previews. Everything
+runs on this computer; no paid services or accounts.
+
+Read README.md and FEATURE-COVERAGE.md for details and sample image source.

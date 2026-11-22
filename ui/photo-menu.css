@@ -1,0 +1,9 @@
+.photo-menu{position:fixed;z-index:1000;min-width:200px;max-width:280px;padding:6px;border-radius:10px;background:#141c2e;border:1px solid #ffffff1f;box-shadow:0 14px 40px #000a;font-size:13px}
+.photo-menu-title{padding:6px 10px 8px;color:#ffffff80;font-size:11px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photo-menu-item{display:block;width:100%;text-align:left;padding:8px 10px;border-radius:6px;background:none;border:0;color:#e8eefc;font:inherit;cursor:pointer}
+.photo-menu-item:hover,.photo-menu-item:focus-visible{background:#ffffff14;outline:none}
+.photo-menu-item.danger{color:#ff8fa8}
+.photo-menu-item.danger:hover,.photo-menu-item.danger:focus-visible{background:#eb6c8c26}
+.photo-menu-sep{height:1px;margin:5px 4px;background:#ffffff14}
+.danger-button{background:#e0567a!important;color:#fff!important;border-color:transparent!important}
+.delete-copy{margin:6px 0 4px;opacity:.75;line-height:1.45}

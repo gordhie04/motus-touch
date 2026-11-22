@@ -1,0 +1,45 @@
+/* Grouped sliders (e.g. Freckles & acne): arrow before the name, value right-aligned like other sliders */
+.control-label>label{flex:1;min-width:0}
+.control-bundle .control-label .bundle-disclosure{order:-1;margin:0 2px 0 -3px;padding:2px 3px 2px 0}
+/* face boxes for per-person targets */
+.face-box{--dash:#ffffffd9;position:absolute;border:0;border-radius:0;cursor:pointer;padding:0;z-index:3;filter:drop-shadow(0 0 1px #000c);
+  background:linear-gradient(90deg,var(--dash) 60%,transparent 0) top/36px 3px repeat-x,linear-gradient(90deg,var(--dash) 60%,transparent 0) bottom/36px 3px repeat-x,linear-gradient(0deg,var(--dash) 60%,transparent 0) left/3px 36px repeat-y,linear-gradient(0deg,var(--dash) 60%,transparent 0) right/3px 36px repeat-y}
+.face-box span{position:absolute;left:-1px;top:-20px;font:600 11px/18px system-ui,sans-serif;padding:0 6px;border-radius:5px;background:#0c1527d9;color:#e8eefc}
+.face-box:hover{--dash:#8bbcff}
+.face-box.selected{--dash:#8bbcff}
+.face-box.selected span{background:#8bbcff;color:#0c1527}
+/* "+" tile in the library grid */
+.add-photo-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:220px;border:1.5px dashed #ffffff2e;border-radius:14px;background:#ffffff05;color:#b4bdcd;cursor:pointer}
+.add-photo-card:hover{border-color:#8bbcff;color:#e8eefc;background:#8bbcff0d}
+.add-photo-plus{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;background:#ffffff0f}
+.add-photo-plus svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:2}
+.add-photo-label{font-size:13px}
+/* Studio with no photo */
+.studio-empty{position:absolute;inset:0;display:grid;place-items:center;z-index:5}
+.studio-empty-card{display:flex;flex-direction:column;align-items:center;gap:10px;padding:40px 48px;border:1.5px dashed #ffffff26;border-radius:18px;background:#0c1527cc;text-align:center;color:#e8eefc}
+.studio-empty-card h2{margin:6px 0 0;font-size:22px}
+.studio-empty-card p{margin:0 0 8px;opacity:.7;font-size:13px}
+.studio-empty-actions{display:flex;gap:10px}
+.studio-has-no-photo .image-frame,.studio-has-no-photo .stage-bottom,.studio-has-no-photo .stage-top{visibility:hidden}
+/* people */
+.face-boxes-hidden .face-box{display:none}
+.face-box-toggle{margin-right:8px}
+.person-rename{box-sizing:border-box;height:24px;max-width:180px;margin:0;padding:0 6px;border-radius:5px;border:1px solid #8bbcff;background:#0c1527;color:#e8eefc;font:inherit;outline:none}
+.renaming{padding-top:2px!important;padding-bottom:2px!important}
+#archive-photos svg{fill:none;stroke:currentColor;stroke-width:1.7}
+
+.person-count{display:inline-flex;align-items:center;height:30px;padding:0 12px;border-radius:8px;border:1px solid #ffffff1f;color:#c9d4ea;font:500 13px system-ui,sans-serif}
+
+/* face-box toggle sits on the person row, not over the photo */
+#target-chips{align-items:center}
+#target-chips .person-count{font-size:10px;color:#a0aec2}
+#target-chips #face-box-toggle{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:9px;color:#8fa3bf;background:#232b36;border:1px solid #ffffff10;border-radius:7px;padding:6px 8px}
+#target-chips #face-box-toggle:hover{background:#2c3644;color:#c6d3e6}
+#target-chips #face-box-toggle svg{width:11px;height:11px}
+
+/* portrait controls stay hidden until face detection answers */
+.portrait-detecting{display:flex;flex-direction:column;align-items:center;gap:10px;padding:46px 18px;text-align:center}
+.portrait-detecting strong{font-size:13px;font-weight:550;color:#d7deea}
+.portrait-detecting p{margin:0;font-size:10px;line-height:1.6;color:#7b8a9e;max-width:210px}
+.detect-spinner{width:22px;height:22px;border:2px solid #ffffff14;border-top-color:#8fa9cf;border-radius:50%;animation:detect-spin .9s linear infinite}
+@keyframes detect-spin{to{transform:rotate(360deg)}}
